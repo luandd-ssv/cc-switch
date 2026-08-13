@@ -1,0 +1,28 @@
+{
+  "name": "cc-switch",
+  "version": "0.1.0",
+  "description": "Switch between multiple Claude Code accounts without re-authenticating",
+  "type": "module",
+  "bin": {
+    "cc-switch": "src/cli.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "cli",
+    "account-switcher"
+  ],
+  "dependencies": {
+    "commander": "^12.1.0"
+  }
+}
