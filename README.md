@@ -7,7 +7,7 @@
 Create as many accounts as you need, log in once each, then jump between them with a single command.
 Skills, agents, and conversation history stay shared; only credentials change.
 
-[![npm](https://img.shields.io/npm/v/cc-switch?color=cb3837&logo=npm)](https://www.npmjs.com/package/cc-switch)
+[![npm](https://img.shields.io/npm/v/%40luandd-ssv%2Fcc-switch?color=cb3837&logo=npm)](https://www.npmjs.com/package/@luandd-ssv/cc-switch)
 [![CI](https://github.com/luandd-ssv/cc-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/luandd-ssv/cc-switch/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6)
@@ -76,7 +76,7 @@ Switching only changes **which credentials** `claude` runs with — not your age
 ## Install
 
 ```sh
-npm install -g cc-switch
+npm install -g @luandd-ssv/cc-switch
 ```
 
 **Requirements:** Node 18+, plus [`claude`](https://claude.com/claude-code) (`@anthropic-ai/claude-code`) on your PATH. CI runs the test suite on Windows, macOS, and Linux.

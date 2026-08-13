@@ -7,7 +7,7 @@
 Tạo bao nhiêu tài khoản tùy ý, đăng nhập một lần cho mỗi tài khoản, rồi chuyển qua lại chỉ với một lệnh.
 Agents, skills và lịch sử hội thoại vẫn dùng chung; chỉ credentials là tách riêng.
 
-[![npm](https://img.shields.io/npm/v/cc-switch?color=cb3837&logo=npm)](https://www.npmjs.com/package/cc-switch)
+[![npm](https://img.shields.io/npm/v/%40luandd-ssv%2Fcc-switch?color=cb3837&logo=npm)](https://www.npmjs.com/package/@luandd-ssv/cc-switch)
 [![CI](https://github.com/luandd-ssv/cc-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/luandd-ssv/cc-switch/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6)
@@ -76,7 +76,7 @@ Chuyển tài khoản chỉ đổi **credentials nào** mà `claude` dùng để
 ## Cài đặt
 
 ```sh
-npm install -g cc-switch
+npm install -g @luandd-ssv/cc-switch
 ```
 
 **Yêu cầu:** Node 18+, cùng với [`claude`](https://claude.com/claude-code) (`@anthropic-ai/claude-code`) trong PATH. CI chạy bộ test trên Windows, macOS và Linux.
