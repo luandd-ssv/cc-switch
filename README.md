@@ -81,7 +81,13 @@ Switching only changes **which credentials** `claude` runs with — not your age
 
 ```sh
 npm install -g @luandd-ssv/cc-switch
+
+# Already installed? Upgrade with @latest and check what you got:
+npm install -g @luandd-ssv/cc-switch@latest
+cc-switch --version
 ```
+
+Upgrading touches only the CLI. Your accounts live in `~/.cc-switch` and are left alone, so you stay logged in.
 
 **Requirements:** Node 18+, plus [`claude`](https://claude.com/claude-code) (`@anthropic-ai/claude-code`) on your PATH. CI runs the test suite on Windows, macOS, and Linux.
 

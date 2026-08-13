@@ -81,7 +81,13 @@ Chuyển tài khoản chỉ đổi **credentials nào** mà `claude` dùng để
 
 ```sh
 npm install -g @luandd-ssv/cc-switch
+
+# Đã cài rồi? Nâng cấp bằng @latest rồi kiểm tra lại:
+npm install -g @luandd-ssv/cc-switch@latest
+cc-switch --version
 ```
+
+Nâng cấp chỉ thay phần CLI. Các account nằm trong `~/.cc-switch` và không bị chạm tới, nên bạn vẫn đang đăng nhập như cũ.
 
 **Yêu cầu:** Node 18+, cùng với [`claude`](https://claude.com/claude-code) (`@anthropic-ai/claude-code`) trong PATH. CI chạy bộ test trên Windows, macOS và Linux.
 
