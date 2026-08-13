@@ -1,25 +1,31 @@
-# Đóng góp cho cc-switch
+# Contributing to cc-switch
 
-## Chạy thử cục bộ
+## Run it locally
 
 ```bash
 npm install
 npm test
-npm link   # cài "cc-switch" global từ thư mục này để thử tay
+npm link   # installs "cc-switch" globally from this directory for hands-on testing
 ```
 
-## Test
+`npm unlink -g cc-switch` removes the global link again.
 
-Test dùng `node:test` — có sẵn trong Node, không kéo thêm dependency — nằm ở `test/*.test.js`. Mỗi test tự tạo một `$HOME`/`%USERPROFILE%` tạm (xem `test/helpers.js`), nên chạy test không đụng vào `~/.cc-switch` hay `~/.claude` thật trên máy bạn.
+## Tests
 
-## Phát hành bản mới
+Tests live in `test/*.test.js` and run on `node:test`, which ships with Node and pulls in no dependency. Each test points `$HOME` and `%USERPROFILE%` at a scratch directory (see `test/helpers.js`), so running the suite leaves the real `~/.cc-switch` and `~/.claude` untouched.
 
-1. Ghi lại thay đổi vào `CHANGELOG.md`.
-2. `npm version patch|minor|major` — tự bump version trong `package.json`, tạo commit và tag git.
+`test/e2e-run.test.js` stands up a fake `claude` on a scratch PATH and checks that arguments survive the launch. Launching is the one part that differs per platform: an npm `.cmd` shim through `cmd.exe` on Windows, a shebang script on macOS and Linux. Keep that file passing on all three.
+
+## Release
+
+1. Record the changes in `CHANGELOG.md`.
+2. `npm version patch|minor|major` bumps `package.json`, then commits and tags.
 3. `git push --follow-tags`.
-4. `npm publish` (cần `npm login` trước; nếu publish dưới scope riêng của công ty, thêm `--access restricted` hoặc trỏ registry nội bộ qua `.npmrc`).
+4. `npm publish`. Run `npm login` first. For a private company scope, add `--access restricted` or point at an internal registry through `.npmrc`.
 
-## Quy ước
+## Conventions
 
-- Không thêm dependency ngoài trừ khi thật sự cần thiết — CLI này cố tình giữ nhẹ (hiện chỉ có `commander`).
-- Tên account chỉ có ý nghĩa cục bộ trên máy đang chạy — hai người dùng cùng đặt tên "work" không liên quan gì đến nhau, không có đồng bộ giữa các máy.
+- Add a dependency only when it earns its place. This CLI stays deliberately light, with `commander` as the sole runtime dependency.
+- Account names mean something on the local machine and sync nowhere. Two people naming an account "work" hold two unrelated accounts.
+- Reach for `fs.stat` over `fs.access` when a symlink's health matters. `fs.access` succeeds on a Windows junction whose target has been deleted.
+- Keep `sharedDirsFor()` in `src/workspace.js` as the single source of truth for which directories an account links, so `status` cannot drift from what `ensureClaudeHome` maintains.

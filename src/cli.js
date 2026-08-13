@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { Command } from "commander";
 import {
   listAccounts,
@@ -11,6 +12,9 @@ import {
 } from "./accounts.js";
 import { ensureClaudeHome } from "./workspace.js";
 import { buildEnv, runClaude } from "./run.js";
+import { collectStatus, renderStatus } from "./status.js";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 const program = new Command();
 program
@@ -18,7 +22,18 @@ program
   .description(
     "Switch between multiple Claude Code accounts without re-authenticating"
   )
+  .version(pkg.version)
   .enablePositionalOptions(true);
+
+// The shared links point at ~/.claude, which may not exist yet the first time
+// someone runs `cc-switch add` on a fresh machine. Re-applying them whenever
+// an account is selected or launched picks those directories up later instead
+// of leaving the account permanently unshared.
+async function syncClaudeHome(account) {
+  return ensureClaudeHome(account.name, {
+    shareHistory: account.shareHistory !== false,
+  });
+}
 
 program
   .command("add <name>")
@@ -33,8 +48,10 @@ program
     }
 
     const shareHistory = opts.shareHistory;
-    await saveAccount(name, { shareHistory });
+    // Build the workspace first: if linking fails we leave no account.json
+    // behind, so the user can fix the cause and re-run `add` as-is.
     await ensureClaudeHome(name, { shareHistory });
+    await saveAccount(name, { shareHistory });
 
     console.log(
       `Added account "${name}" (history ${shareHistory ? "shared" : "isolated"}).`
@@ -68,7 +85,18 @@ program
   .description("Set the active account")
   .action(async (name) => {
     await setCurrent(name);
+    await syncClaudeHome(await getAccount(name));
     console.log(`Active account: ${name}`);
+  });
+
+program
+  .command("status")
+  .alias("dashboard")
+  .description("Show every account with its login, history, and shared-link state")
+  .option("--json", "print the same data as JSON")
+  .action(async (opts) => {
+    const status = await collectStatus();
+    console.log(opts.json ? JSON.stringify(status, null, 2) : renderStatus(status));
   });
 
 program
@@ -102,6 +130,7 @@ program
       return;
     }
     const account = await getAccount(name);
+    await syncClaudeHome(account);
     const env = buildEnv(account);
     const code = await runClaude(args, env);
     process.exitCode = code;

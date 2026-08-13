@@ -69,6 +69,16 @@ test("removeAccount succeeds once the account is no longer active", async () => 
   assert.equal(await accountExists("a"), false);
 });
 
+test("removeAccount rejects an account that doesn't exist", async () => {
+  await assert.rejects(() => removeAccount("never-created"), /does not exist/);
+});
+
+test("account.json cannot override the directory-derived name", async () => {
+  await saveAccount("work", { shareHistory: true, name: "../../elsewhere" });
+  const account = await getAccount("work");
+  assert.equal(account.name, "work");
+});
+
 test("rejects path-unsafe or malformed account names", async () => {
   await assert.rejects(
     () => saveAccount("../evil", { shareHistory: true }),

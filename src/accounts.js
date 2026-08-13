@@ -63,7 +63,10 @@ export async function getAccount(name) {
   const file = path.join(accountDir(name), "account.json");
   const raw = await fs.readFile(file, "utf8");
   const data = JSON.parse(raw);
-  return { name, ...data };
+  // The directory name is the one we validated, so it wins over any "name"
+  // left in the JSON: that value feeds claudeHomeDir() and a stale copy
+  // would silently point the account at another account's credentials.
+  return { ...data, name };
 }
 
 export async function accountExists(name) {
@@ -74,7 +77,7 @@ export async function accountExists(name) {
 export async function saveAccount(name, data) {
   assertValidName(name);
   const dir = accountDir(name);
-  await fs.mkdir(dir, { recursive: true });
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, "account.json");
   await fs.writeFile(file, JSON.stringify(data, null, 2) + "\n", {
     mode: 0o600,
@@ -83,6 +86,9 @@ export async function saveAccount(name, data) {
 
 export async function removeAccount(name) {
   assertValidName(name);
+  if (!(await accountExists(name))) {
+    throw new Error(`Account "${name}" does not exist. Run "cc-switch list" to see them.`);
+  }
   const current = await getCurrent();
   if (current === name) {
     throw new Error(
@@ -107,6 +113,6 @@ export async function setCurrent(name) {
   if (!(await accountExists(name))) {
     throw new Error(`Account "${name}" does not exist. Run "cc-switch add ${name}" first.`);
   }
-  await fs.mkdir(rootDir(), { recursive: true });
+  await fs.mkdir(rootDir(), { recursive: true, mode: 0o700 });
   await fs.writeFile(currentFile(), name + "\n", "utf8");
 }
