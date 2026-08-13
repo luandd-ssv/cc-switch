@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-08-13
+
+### Documented
+
+- How to upgrade an existing install. The Install section only showed the first install, so nothing told an existing user to pull a new version, or that upgrading leaves `~/.cc-switch` — and therefore their logins — untouched. Code is unchanged from 0.2.0; this release exists so the README on npm carries the note.
+
 ## 0.2.0 — 2026-08-13
 
 ### Added
