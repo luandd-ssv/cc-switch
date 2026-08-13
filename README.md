@@ -28,20 +28,24 @@ cc-switch use personal
 cc-switch run -p "review this PR"
 
 cc-switch list
-cc-switch status        # login state, shared-link health, last active
+cc-switch status        # login state, quota, shared-link health, last active
+cc-switch dashboard     # same data as a local web page, with reset countdowns
 ```
 
 | You want… | Command pattern |
 |-----------|-----------------|
 | Several Claude Code accounts | `cc-switch add <name>` → `cc-switch use <name>` → `cc-switch run` |
 | Switch without re-login | `cc-switch use <other>` |
-| Resume a past session | `cc-switch run -- --continue` (history is shared) |
+| Resume a past session | `cc-switch run -- --resume` (a picker; `--continue` jumps to the newest) |
 | See account health at a glance | `cc-switch status` |
+| Watch quota across accounts | `cc-switch dashboard` |
 | Keep one account's history private | `cc-switch add <name> --no-share-history` |
 
 - 🔁 **Multi-account switcher** — as many identities as you need; log in once, switch forever
 - 🧰 **Full passthrough** — `cc-switch run [args...]` ≡ `claude [args...]` (`--continue`, `--resume`, `-p`, …)
 - 🤝 **Shared workspace** — agents, skills, and session history stay linked to `~/.claude` by default
+- 📊 **Quota per account** — 5-hour and 7-day utilization with exact reset countdowns, read from each account's own cache
+- 🔔 **"Use this one next"** — the web dashboard notifies when a window is about to roll over with quota left in it
 - 📋 **Status report** — login state, shared-link health, and last-active time for every account
 - 🧹 **Isolated by design** — each account's credentials live in their own `CLAUDE_CONFIG_DIR`, nothing else touched
 
@@ -131,7 +135,8 @@ Credentials (`.credentials.json`, `.claude.json`) stay separate per account rega
 | `cc-switch run [claude args...]` (alias `code`) | Launch `claude` as the active account, all flags pass through |
 | `cc-switch list` | List every account, `*` marks the active one |
 | `cc-switch current` | Print the active account's name |
-| `cc-switch status` (alias `dashboard`) | Login state, shared-link health, and last-active time per account |
+| `cc-switch status` | Login state, cached quota, shared-link health, and last-active time per account |
+| `cc-switch dashboard` | Serve the same data as a local web page with reset countdowns and notifications |
 | `cc-switch remove <name>` | Delete an account (refuses on the active one) |
 | `cc-switch --version` | Print the installed version |
 
@@ -154,6 +159,14 @@ active account work
    client    isolated  no     never             agents:shared skills:shared
    personal  shared    yes    2026-08-12 09:31  agents:shared skills:shared projects:shared
 *  work      shared    yes    2026-08-13 06:44  agents:shared skills:shared projects:shared
+
+QUOTA  (read from each account's cache, no API calls)
+   ACCOUNT   PLAN    5H   7D   RESET IN  AS OF
+   personal  max_5x  -    12%  -         09:31 (5h ago)
+*  work      max_5x  59%  8%   42m       06:44 (12m ago)
+
+1 suggestion:
+  - Use work now: 5h window resets in 42m with only 59% used. Spend it before it rolls over.
 ```
 
 `LOGIN` reads each account's `.credentials.json`, so it shows which accounts have finished OAuth and which still need a first `run`. `SHARED LINKS` reports each linked directory as `shared`, `local` (a real directory you created), `unlinked`, `absent` (nothing to link to under `~/.claude` yet), or `BROKEN`. Anything needing attention prints as a note underneath, with the command that fixes it.
@@ -164,7 +177,43 @@ Add `--json` to feed the same data to a script:
 cc-switch status --json
 ```
 
-The report reads the filesystem on request — it starts no server and no background process. Token counts and spend sit outside its scope, since cc-switch records neither.
+The report reads the filesystem on request — it starts no server and no background process.
+
+---
+
+## Quota
+
+Claude Code caches the rate-limit response it receives into `.claude.json`, and cc-switch gives every account its own copy of that file. Reading it is how both `status` and `dashboard` show per-account quota **without calling any API and without spending quota to find out how much is left**.
+
+That has one consequence worth understanding: a percentage is only as fresh as that account's last run. cc-switch never presents a stale number as current — once a window's `resets_at` has passed, the cached percentage describes an allowance the server has already replaced, so it prints as `-` (`—` on the web page) instead. The **countdown is exact either way**, because `resets_at` is an absolute timestamp.
+
+`AS OF` says when each account last refreshed its own cache. To refresh it, run that account (`cc-switch use <name> && cc-switch run`) — nothing else can, by design.
+
+### Web dashboard
+
+```sh
+cc-switch dashboard              # http://127.0.0.1:6769/
+cc-switch dashboard --port 8080 --open
+```
+
+The page shows a stat strip (accounts, active account, which account to use next, next 5-hour reset), a card per account with 5-hour and 7-day meters plus reset countdowns, an accounts table (plan, email, organization, login, history mode, link health), and the last session recorded per account — cost, input/output/cache tokens, and the models it used, all straight from `.claude.json`.
+
+**Notifications.** The toggle in the header is **on by default**; browsers require a click before granting permission, so the page offers an *Allow notifications* button on first open. From then on it notifies when an account's **5-hour window is about to roll over with quota still unused** — the case where switching to that account first wastes nothing:
+
+> **Use work now** — 5h window resets in 42m with only 59% used. Spend it before it rolls over.
+
+A window crosses into "about to roll over" on the clock, not on a refresh, so the page decides every 30 seconds against its own clock and `--interval` only governs how often the percentages are re-read from disk. Each window notifies once (the dedupe key includes `resets_at`, so the next window notifies again), and an account that is logged out is never suggested — its leftover quota cannot be spent without a fresh login. Tune the rule, or turn the page into a faster-refreshing wallboard:
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--port <n>` | `6769` | Port to listen on |
+| `--host <addr>` | `127.0.0.1` | Loopback address to bind — `127.0.0.1`, `localhost` or `::1`; anything wider is refused |
+| `--open` | off | Open the dashboard in your browser |
+| `--interval <minutes>` | `60` | How often the page re-reads quota from disk |
+| `--reset-within <minutes>` | `60` | Suggest an account whose 5-hour window resets within this long |
+| `--headroom-below <percent>` | `70` | Only suggest an account that has used at most this much of the window |
+
+Two limits, stated plainly: notifications need the tab open (there is no service worker and no background process), and the server serves loopback only, because the page reports the account holder's email, organization and project paths. It rejects requests carrying a non-local `Host` header — the header is what separates a genuine request from a name an attacker pointed at `127.0.0.1` — and `--host` refuses to bind anywhere but loopback, since a `Host` header is trivially forged by anything that is not a browser while a browser on another device would be refused anyway.
 
 ---
 
@@ -182,7 +231,7 @@ On macOS and Linux, `cc-switch` resolves `claude` on your PATH and spawns it, pa
 
 Per-account metadata lives in `~/.cc-switch/accounts/<name>/account.json`. Account directories are created with `0700` permissions, since Claude Code stores its credentials inside them.
 
-This release supports one provider (Anthropic) and ships no usage/cost dashboard.
+This release supports one provider (Anthropic). The dashboard reports quota and the last session Claude Code recorded per account; it does not scan session transcripts, so lifetime token totals and 30-day spend charts sit outside its scope.
 
 Account names stay local to the machine and sync nowhere. Two colleagues each naming an account "work" still hold two independent accounts, each pointing at its own Claude Code identity.
 

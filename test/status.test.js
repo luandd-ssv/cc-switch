@@ -110,6 +110,43 @@ test("warns that macOS cannot isolate credentials", async () => {
   assert.equal(warned, !onDisk);
 });
 
+test("renders a quota section and a suggestion from the cached utilization", async () => {
+  await ensureClaudeHome("work", { shareHistory: true });
+  await saveAccount("work", { shareHistory: true });
+  await setCurrent("work");
+
+  // A suggestion is only offered for an account that can actually open a
+  // session, so the fixture has to be logged in.
+  writeFileSync(path.join(claudeHomeDir("work"), ".credentials.json"), "{}");
+
+  const now = Date.parse("2026-08-13T08:00:00.000Z");
+  writeFileSync(
+    path.join(claudeHomeDir("work"), ".claude.json"),
+    JSON.stringify({
+      oauthAccount: { emailAddress: "dev@example.com", userRateLimitTier: "default_claude_max_5x" },
+      cachedUsageUtilization: {
+        fetchedAtMs: now - 5 * 60000,
+        utilization: {
+          five_hour: { utilization: 59, resets_at: new Date(now + 42 * 60000).toISOString() },
+          // Already rolled over, so its percentage must not be reported.
+          seven_day: { utilization: 76, resets_at: new Date(now - 60000).toISOString() },
+        },
+      },
+    })
+  );
+
+  const status = await collectStatus(NO_PATH, { now });
+  const text = renderStatus(status);
+
+  assert.match(text, /QUOTA/);
+  assert.match(text, /max_5x/);
+  assert.match(text, /59%/);
+  assert.match(text, /42m/);
+  assert.doesNotMatch(text, /76%/);
+  assert.match(text, /1 suggestion:/);
+  assert.match(text, /Use work now/);
+});
+
 test("renders a table marking the active account", async () => {
   await ensureClaudeHome("work", { shareHistory: true });
   await saveAccount("work", { shareHistory: true });

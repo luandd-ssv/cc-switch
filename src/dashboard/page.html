@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cc-switch dashboard</title>
+<style>
+  :root {
+    --bg: #10151d;
+    --panel: #182030;
+    --panel-2: #1f2a3d;
+    --border: #33415c;
+    --border-soft: #263349;
+    --text: #edf2f9;
+    --muted: #9fadc2;
+    --faint: #6b7a92;
+    --accent: #4c9aff;
+    --amber: #f0b429;
+    --green: #4ade80;
+    --red: #f87171;
+    --track: #243044;
+    --hit: rgba(255, 255, 255, .06);
+    --shadow: 0 8px 24px rgba(0, 0, 0, .5);
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f6fa;
+    --panel: #ffffff;
+    --panel-2: #eef2f7;
+    --border: #c9d3e0;
+    --border-soft: #e1e7f0;
+    --text: #1c2433;
+    --muted: #5a6a80;
+    --faint: #8695aa;
+    --accent: #1d6fd8;
+    --amber: #b45309;
+    --green: #15803d;
+    --red: #b91c1c;
+    --track: #e3e9f2;
+    --hit: rgba(28, 36, 51, .06);
+    --shadow: 0 8px 24px rgba(28, 36, 51, .18);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    font-family: var(--sans); color: var(--text); background: var(--bg);
+    font-size: 14px; line-height: 1.5; padding: 28px 32px 48px;
+    max-width: 1240px; margin: 0 auto;
+  }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+  h1 .dot { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+  .spacer { flex: 1; }
+  .btn {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px; font-size: 13px;
+    transition: border-color .15s, background .15s, color .15s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.on { color: var(--green); border-color: currentColor; }
+  .btn.off { color: var(--faint); }
+  .btn.icon { padding: 6px 10px; }
+  .btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+  :root:not([data-theme="light"]) .icon-moon { display: none; }
+  :root[data-theme="light"] .icon-sun { display: none; }
+  .source-note { color: var(--faint); font-size: 12px; margin-bottom: 22px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .stat { background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 14px 18px; }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .stat .value { font-family: var(--mono); font-size: 24px; font-weight: 600; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+  .stat .aux { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+  .stat.pick { border-color: var(--green); }
+
+  h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 30px 0 12px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius);
+    padding: 16px 18px 14px; border-top: 3px solid var(--acc-color, var(--border));
+  }
+  .card .head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; flex-wrap: wrap; }
+  .card .name { font-family: var(--mono); font-weight: 600; font-size: 15px; }
+  .card .email { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    font-size: 10.5px; padding: 1px 7px; border-radius: 20px; border: 1px solid var(--border);
+    color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
+  }
+  .badge.ok { color: var(--green); border-color: currentColor; }
+  .badge.warn { color: var(--amber); border-color: currentColor; }
+  .badge.bad { color: var(--red); border-color: currentColor; }
+
+  .meter { margin-top: 12px; }
+  .meter .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 12.5px; }
+  .meter .top .k { color: var(--muted); }
+  .meter .top .v { font-family: var(--mono); font-weight: 600; }
+  .meter .track { height: 7px; border-radius: 4px; background: var(--track); margin-top: 5px; overflow: hidden; }
+  .meter .fill { height: 100%; border-radius: 4px; background: var(--green); transition: width .3s; }
+  .meter .fill.warn { background: var(--amber); }
+  .meter .fill.bad { background: var(--red); }
+  .meter .fill.none { background: var(--faint); }
+  .meter .foot { color: var(--faint); font-size: 11.5px; font-family: var(--mono); margin-top: 4px; }
+  .card .as-of { color: var(--faint); font-size: 11.5px; font-family: var(--mono); margin-top: 12px; border-top: 1px solid var(--border-soft); padding-top: 8px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius); overflow-x: auto; }
+  .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .panel th {
+    text-align: left; color: var(--muted); font-weight: 500; font-size: 11.5px;
+    text-transform: uppercase; letter-spacing: .06em;
+    padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel-2); white-space: nowrap;
+  }
+  .panel td { padding: 8px 16px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+  .panel tr:last-child td { border-bottom: 0; }
+  .panel td.num, .panel th.num { text-align: right; font-family: var(--mono); }
+  .panel td.mono { font-family: var(--mono); }
+  .panel td.wrap { white-space: normal; }
+  .dim { color: var(--faint); }
+
+  .banner { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 10px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .banner.tip { border-color: var(--green); color: var(--green); }
+  .banner.note { border-color: var(--amber); color: var(--amber); }
+  .banner .spacer { flex: 1; }
+  .banner code { font-family: var(--mono); }
+  .empty { color: var(--faint); text-align: center; padding: 40px 0; font-size: 13px; }
+  footer { margin-top: 34px; color: var(--faint); font-size: 12px; line-height: 1.8; }
+  footer code { font-family: var(--mono); color: var(--muted); }
+  footer .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  footer .row .k { min-width: 120px; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    body { padding: 18px 14px 40px; }
+    .cards { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat .value { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>cc-switch<span class="dot">·</span>dashboard</h1>
+  <span class="sub" id="gen-at"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="notify-toggle" aria-pressed="true">Notifications</button>
+  <button class="btn icon" id="theme-toggle" aria-label="Toggle light/dark theme">
+    <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+  <button class="btn" id="refresh">&#8635; Refresh</button>
+</header>
+<p class="source-note">
+  Quota comes from each account's own <code>.claude.json</code> cache, written by Claude Code itself.
+  This page makes <strong>no API calls</strong> and spends no quota, so a percentage is only as fresh as
+  that account's last run &mdash; the reset countdown is exact either way.
+</p>
+
+<div id="banners"></div>
+<section class="stats" id="stats" aria-label="Overview"></section>
+
+<h2>Quota per account</h2>
+<section class="cards" id="cards"></section>
+
+<h2>Accounts</h2>
+<div class="panel">
+  <table aria-label="Accounts">
+    <thead><tr>
+      <th>Account</th><th>Plan</th><th>Email</th><th>Organization</th>
+      <th>Login</th><th>History</th><th>Shared links</th><th>Last active</th>
+    </tr></thead>
+    <tbody id="accounts"></tbody>
+  </table>
+</div>
+
+<h2>Last session per account</h2>
+<div class="panel">
+  <table aria-label="Last session per account">
+    <thead><tr>
+      <th>Account</th><th>Started</th><th class="num">Cost</th><th class="num">In</th>
+      <th class="num">Out</th><th class="num">Cache R</th><th class="num">Cache W</th>
+      <th>Models</th><th>Project</th>
+    </tr></thead>
+    <tbody id="sessions"></tbody>
+  </table>
+</div>
+
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("cc-switch-theme"); } catch (e) {}
+  if (!t) t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+  if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+})();
+
+var PALETTE = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#ec4899", "#06b6d4", "#f97316", "#64748b"];
+var NOTIFY_KEY = "cc-switch-notify";
+var SENT_KEY = "cc-switch-notified";
+
+var $ = function (id) { return document.getElementById(id); };
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+// Mirrors formatDuration() in src/quota.js so the countdown ticking locally
+// reads the same as the text the server produced.
+function fmtDur(ms) {
+  if (ms == null || !isFinite(ms) || ms <= 0) return "now";
+  var m = Math.round(ms / 60000);
+  if (m < 60) return m + "m";
+  var h = Math.floor(m / 60);
+  if (h >= 48) {
+    var d = Math.floor(h / 24), rh = h % 24;
+    return rh ? d + "d" + rh + "h" : d + "d";
+  }
+  var r = m % 60;
+  return r ? h + "h" + String(r).padStart(2, "0") + "m" : h + "h";
+}
+function fmtClock(ms) {
+  if (!ms) return "never";
+  var d = new Date(ms);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function fmtClockSec(ms) {
+  if (!ms) return "never";
+  var d = new Date(ms);
+  return fmtClock(ms) + ":" + String(d.getSeconds()).padStart(2, "0");
+}
+// A time alone is ambiguous once the reset is more than a day out, which the
+// 7-day window always is.
+function fmtWhen(ms, now) {
+  if (!ms) return "never";
+  if (ms - now < 86400000) return fmtClock(ms);
+  var d = new Date(ms);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + fmtClock(ms);
+}
+function fmtTokens(n) {
+  if (!n) return "0";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+}
+function fmtCost(v) { return v == null ? "-" : "$" + Number(v).toFixed(2); }
+// A corrupt timestamp in .claude.json must not throw here: an exception during
+// render would blank the page and, before the poll loop was made failure-proof,
+// stop the hourly re-check for every other account too.
+function fmtStamp(ms) {
+  var d = new Date(ms);
+  return isFinite(d.getTime()) ? d.toISOString().slice(0, 16).replace("T", " ") : "-";
+}
+function shortPlan(identity) {
+  var tier = identity && (identity.rateLimitTier || identity.seatTier);
+  return tier ? tier.replace(/^default_/, "").replace(/^claude_/, "") : "-";
+}
+function shortPath(p) {
+  if (!p) return "-";
+  var parts = String(p).split(/[\\/]/).filter(Boolean);
+  return parts.length <= 2 ? p : "…/" + parts.slice(-2).join("/");
+}
+
+// A window whose resets_at has passed describes an allowance the server has
+// already replaced, so the page downgrades it exactly as the server does
+// rather than letting a stale percentage age on screen.
+function windowState(w, now) {
+  if (!w) return { state: "unknown", percent: null, msToReset: null };
+  if (w.state === "unknown") return { state: "unknown", percent: w.percent, msToReset: null };
+  if (!w.resetsAt) return { state: w.state, percent: w.percent, msToReset: null };
+  if (w.resetsAt <= now) return { state: "expired", percent: null, msToReset: 0, resetsAt: w.resetsAt };
+  return { state: "fresh", percent: w.percent, msToReset: w.resetsAt - now, resetsAt: w.resetsAt };
+}
+function pickWindow(quota, key) {
+  var list = (quota && quota.windows) || [];
+  for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i];
+  return null;
+}
+function fillClass(percent) {
+  if (percent == null) return "none";
+  if (percent >= 90) return "bad";
+  if (percent >= 70) return "warn";
+  return "";
+}
+
+function meter(label, w, now) {
+  var s = windowState(w, now);
+  var pct = s.percent;
+  var value = s.state === "fresh" ? pct + "%" : (s.state === "expired" ? "—" : "?");
+  var foot;
+  if (s.state === "fresh") foot = "resets in " + fmtDur(s.msToReset) + " · " + fmtWhen(s.resetsAt, now);
+  else if (s.state === "expired") foot = "window rolled over, cache not refreshed yet";
+  else foot = "no data in cache";
+
+  return '<div class="meter">' +
+    '<div class="top"><span class="k">' + esc(label) + '</span><span class="v">' + esc(value) + "</span></div>" +
+    '<div class="track"><div class="fill ' + fillClass(s.state === "fresh" ? pct : null) + '" style="width:' +
+      (s.state === "fresh" ? Math.max(0, Math.min(100, pct)) : 0) + '%"></div></div>' +
+    '<div class="foot">' + esc(foot) + "</div></div>";
+}
+
+function loginBadge(account) {
+  var state = account.login && account.login.state;
+  if (state === "logged-in") return '<span class="badge ok">logged in</span>';
+  if (state === "keychain") return '<span class="badge warn">keychain</span>';
+  return '<span class="badge bad">logged out</span>';
+}
+
+function renderCards(data, now, suggested) {
+  var host = $("cards");
+  if (!data.accounts.length) {
+    host.innerHTML = '<div class="empty">No accounts yet. Run <code>cc-switch add &lt;name&gt;</code>.</div>';
+    return;
+  }
+  var names = data.accounts.map(function (a) { return a.name; }).sort();
+  host.innerHTML = data.accounts.map(function (a) {
+    var color = PALETTE[names.indexOf(a.name) % PALETTE.length];
+    var quota = (a.profile && a.profile.quota) || {};
+    var identity = (a.profile && a.profile.identity) || null;
+    var age = quota.fetchedAt ? now - quota.fetchedAt : null;
+    var asOf = quota.fetchedAt
+      ? "cache from " + fmtClock(quota.fetchedAt) + (age > 60000 ? " (" + fmtDur(age) + " ago)" : "")
+      : "this account has never been launched";
+
+    return '<article class="card" style="--acc-color:' + color + '">' +
+      '<div class="head"><span class="name">' + esc(a.name) + "</span>" +
+      (a.active ? '<span class="badge ok">active</span>' : "") +
+      (suggested === a.name ? '<span class="badge ok">use next</span>' : "") +
+      '<span class="badge">' + esc(shortPlan(identity)) + "</span>" + loginBadge(a) + "</div>" +
+      '<div class="email">' + esc((identity && identity.email) || "unknown email") + "</div>" +
+      meter("5-hour window", pickWindow(quota, "five_hour"), now) +
+      meter("7-day window", pickWindow(quota, "seven_day"), now) +
+      '<div class="as-of">' + esc(asOf) + "</div></article>";
+  }).join("");
+}
+
+function renderStats(data, now, candidates) {
+  var loggedIn = data.accounts.filter(function (a) {
+    return a.login && a.login.state === "logged-in";
+  }).length;
+
+  var soonest = null;
+  data.accounts.forEach(function (a) {
+    var s = windowState(pickWindow((a.profile || {}).quota, "five_hour"), now);
+    if (s.state !== "fresh") return;
+    if (!soonest || s.msToReset < soonest.ms) soonest = { ms: s.msToReset, name: a.name, pct: s.percent };
+  });
+
+  var pick = candidates.length ? candidates[0] : null;
+  var cells = [
+    { label: "Accounts", value: String(data.accounts.length), aux: loggedIn + " logged in" },
+    { label: "Active", value: data.current || "(none)", aux: data.platform },
+    {
+      label: "Use next",
+      value: pick ? pick.account : "—",
+      aux: pick ? pick.percent + "% used · resets in " + fmtDur(pick.msToReset) : "nothing about to roll over",
+      pick: !!pick,
+    },
+    {
+      label: "Next 5h reset",
+      value: soonest ? fmtDur(soonest.ms) : "—",
+      aux: soonest ? soonest.name + " at " + soonest.pct + "%" : "no fresh cache",
+    },
+  ];
+  $("stats").innerHTML = cells.map(function (c) {
+    return '<div class="stat' + (c.pick ? " pick" : "") + '"><div class="label">' + esc(c.label) +
+      '</div><div class="value">' + esc(c.value) + '</div><div class="aux">' + esc(c.aux) + "</div></div>";
+  }).join("");
+}
+
+function renderAccounts(data) {
+  var host = $("accounts");
+  if (!data.accounts.length) {
+    host.innerHTML = '<tr><td colspan="8" class="dim">No accounts.</td></tr>';
+    return;
+  }
+  host.innerHTML = data.accounts.map(function (a) {
+    var identity = (a.profile && a.profile.identity) || {};
+    var links = (a.links || []).map(function (l) { return l.dir + ":" + l.state; }).join(" ");
+    return "<tr><td class=\"mono\">" + (a.active ? "* " : "") + esc(a.name) + "</td>" +
+      "<td>" + esc(shortPlan(identity)) + "</td>" +
+      "<td>" + esc(identity.email || "-") + "</td>" +
+      "<td>" + esc(identity.organization || "-") + "</td>" +
+      "<td>" + loginBadge(a) + "</td>" +
+      "<td>" + (a.shareHistory ? "shared" : "isolated") + "</td>" +
+      "<td class=\"mono dim\">" + esc(links) + "</td>" +
+      "<td class=\"mono dim\">" + esc(a.lastActive ? a.lastActive.slice(0, 16).replace("T", " ") : "never") + "</td></tr>";
+  }).join("");
+}
+
+function renderSessions(data) {
+  var rows = data.accounts.filter(function (a) { return a.profile && a.profile.lastSession; });
+  var host = $("sessions");
+  if (!rows.length) {
+    host.innerHTML = '<tr><td colspan="9" class="dim">No session recorded yet.</td></tr>';
+    return;
+  }
+  host.innerHTML = rows.map(function (a) {
+    var s = a.profile.lastSession;
+    var models = s.models.map(function (m) { return m.model.replace(/-\d{8}$/, ""); }).join(", ") || "-";
+    return "<tr><td class=\"mono\">" + esc(a.name) + "</td>" +
+      "<td class=\"mono dim\">" + esc(fmtStamp(s.startedAt)) + "</td>" +
+      "<td class=\"num\">" + esc(fmtCost(s.cost)) + "</td>" +
+      "<td class=\"num\">" + esc(fmtTokens(s.input)) + "</td>" +
+      "<td class=\"num\">" + esc(fmtTokens(s.output)) + "</td>" +
+      "<td class=\"num\">" + esc(fmtTokens(s.cacheRead)) + "</td>" +
+      "<td class=\"num\">" + esc(fmtTokens(s.cacheCreation)) + "</td>" +
+      "<td class=\"dim\">" + esc(models) + "</td>" +
+      "<td class=\"mono dim\" title=\"" + esc(s.project) + "\">" + esc(shortPath(s.project)) + "</td></tr>";
+  }).join("");
+}
+
+function renderBanners(data, candidates) {
+  var html = "";
+  // The 30-second re-render rewrites this container wholesale, so a fetch error
+  // has to be part of the rendered state rather than written over the top of it,
+  // or it would vanish half a minute after appearing and leave a page that looks
+  // healthy while showing hour-old numbers.
+  if (lastError) {
+    html += '<div class="banner note">Could not reach cc-switch: ' + esc(lastError) +
+      ". Is <code>cc-switch dashboard</code> still running? Retrying on the next check.</div>";
+  }
+  if (notifyEnabled() && "Notification" in window && Notification.permission === "default") {
+    html += '<div class="banner tip"><span>Browser notifications are on, but this page still needs your ' +
+      'permission.</span><span class="spacer"></span><button class="btn" id="ask-perm">Allow notifications</button></div>';
+  }
+  if (notifyEnabled() && "Notification" in window && Notification.permission === "denied") {
+    html += '<div class="banner note">Notifications are blocked for this site in your browser settings, ' +
+      "so the hourly check can only update this page.</div>";
+  }
+  candidates.forEach(function (c) {
+    html += '<div class="banner tip"><strong>' + esc(c.title) + "</strong><span>" + esc(c.body) + "</span></div>";
+  });
+  (data.warnings || []).forEach(function (w) {
+    html += '<div class="banner note">' + esc(w) + "</div>";
+  });
+  $("banners").innerHTML = html;
+
+  var ask = $("ask-perm");
+  if (ask) ask.addEventListener("click", requestPermission);
+}
+
+function renderFooter(data) {
+  var poll = (data.dashboard && data.dashboard.pollMinutes) || 60;
+  var t = (data.recommendations && data.recommendations.thresholds) || {};
+  var rows = [
+    ["config root", data.root],
+    ["shared from", data.globalClaudeDir],
+    ["claude binary", data.claudeBin || "not found on PATH"],
+  ].map(function (r) {
+    return '<div class="row"><span class="k">' + esc(r[0]) + "</span><code>" + esc(r[1]) + "</code></div>";
+  }).join("");
+
+  $("foot").innerHTML = rows +
+    "<div class=\"row\"><span class=\"k\">notify rule</span><span>an account is suggested when its 5-hour window " +
+    "resets within " + esc(t.resetWithinMinutes || 60) + " minutes and at most " +
+    esc(t.headroomBelowPercent == null ? 70 : t.headroomBelowPercent) + "% of it has been used</span></div>" +
+    "<div class=\"row\"><span class=\"k\">check interval</span><span>every " + esc(poll) +
+    " minutes while this tab stays open</span></div>";
+}
+
+// ── Notifications ───────────────────────────────────────────
+function notifyEnabled() { return load(NOTIFY_KEY) !== "off"; }
+
+function paintToggle() {
+  var on = notifyEnabled();
+  var btn = $("notify-toggle");
+  btn.className = "btn " + (on ? "on" : "off");
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  var suffix = on && "Notification" in window && Notification.permission === "granted" ? "" :
+    (on ? " (needs permission)" : "");
+  btn.textContent = (on ? "●" : "○") + " Notifications " + (on ? "on" : "off") + suffix;
+}
+
+function requestPermission() {
+  if (!("Notification" in window)) return;
+  // Chrome only honours this inside a user gesture, which is why it hangs off a
+  // button rather than firing on load.
+  Notification.requestPermission().then(function () {
+    paintToggle();
+    render(latest);
+  });
+}
+
+// One notification per account per window: the key includes resets_at, so the
+// next window notifies again but an hourly re-check of the same one does not.
+function alreadySent(key) {
+  var raw = load(SENT_KEY);
+  var seen = raw ? raw.split("|") : [];
+  return seen.indexOf(key) !== -1;
+}
+function markSent(key) {
+  var raw = load(SENT_KEY);
+  var seen = raw ? raw.split("|") : [];
+  seen.push(key);
+  store(SENT_KEY, seen.slice(-40).join("|"));
+}
+
+function fireNotifications(candidates) {
+  if (!notifyEnabled()) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  candidates.forEach(function (c) {
+    var key = c.account + "@" + c.resetsAt;
+    if (alreadySent(key)) return;
+    markSent(key);
+    try {
+      new Notification(c.title, { body: c.body, tag: key, requireInteraction: false });
+    } catch (e) {
+      // Some browsers refuse constructor notifications; the on-page banner
+      // still carries the same message.
+    }
+  });
+}
+
+// ── Wiring ──────────────────────────────────────────────────
+var latest = null;
+var lastError = null;
+var pollTimer = null;
+var pollMinutes = 60;
+
+function currentCandidates(data, now) {
+  // Recomputed against the wall clock so a candidate whose window closed
+  // between polls stops being offered, and so the countdown inside the sentence
+  // is the same one the meters and stat tiles show rather than a copy frozen at
+  // the last poll.
+  return ((data.recommendations && data.recommendations.candidates) || []).filter(function (c) {
+    return Date.parse(c.resetsAt) > now;
+  }).map(function (c) {
+    var ms = Date.parse(c.resetsAt) - now;
+    return Object.assign({}, c, {
+      msToReset: ms,
+      body: c.bodyTemplate ? c.bodyTemplate.replace("{resetIn}", fmtDur(ms)) : c.body,
+    });
+  });
+}
+
+function render(data) {
+  if (!data) return;
+  var now = Date.now();
+  var candidates = currentCandidates(data, now);
+  $("gen-at").textContent = "data read " + fmtClockSec(Date.parse(data.generatedAt));
+  renderBanners(data, candidates);
+  renderStats(data, now, candidates);
+  renderCards(data, now, candidates.length ? candidates[0].account : null);
+  renderAccounts(data);
+  renderSessions(data);
+  renderFooter(data);
+}
+
+function fetchStatus(andNotify) {
+  return fetch("/api/status", { cache: "no-store" })
+    .then(function (r) {
+      // Without this the JSON error body the server sends with a 500 would be
+      // adopted as if it were a status payload, and every later render would
+      // throw on its missing fields.
+      if (!r.ok) throw new Error("cc-switch answered " + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      if (!data || !Array.isArray(data.accounts)) throw new Error("unexpected reply from /api/status");
+      latest = data;
+      lastError = null;
+      pollMinutes = (data.dashboard && data.dashboard.pollMinutes) || 60;
+      render(data);
+      if (andNotify) fireNotifications(currentCandidates(data, Date.now()));
+    })
+    .catch(function (err) {
+      lastError = err && err.message ? err.message : String(err);
+      if (latest) render(latest);
+      else $("banners").innerHTML = '<div class="banner note">Could not reach cc-switch: ' + esc(lastError) +
+        ". Is <code>cc-switch dashboard</code> still running? Retrying on the next check.</div>";
+    })
+    // Rescheduling unconditionally: the poll loop is the only thing keeping the
+    // notifications alive, so a laptop waking from sleep or a restarted server
+    // must not be able to end it. Rescheduling inside the success branch meant
+    // one transient failure stopped the page re-checking for good.
+    .then(schedulePoll, schedulePoll);
+}
+
+function schedulePoll() {
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = setTimeout(function () { fetchStatus(true); }, pollMinutes * 60000);
+}
+
+$("theme-toggle").addEventListener("click", function () {
+  var light = document.documentElement.getAttribute("data-theme") === "light";
+  if (light) document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", "light");
+  store("cc-switch-theme", light ? "dark" : "light");
+});
+
+$("notify-toggle").addEventListener("click", function () {
+  var turningOn = !notifyEnabled();
+  store(NOTIFY_KEY, turningOn ? "on" : "off");
+  paintToggle();
+  if (turningOn && "Notification" in window && Notification.permission === "default") requestPermission();
+  else render(latest);
+});
+
+$("refresh").addEventListener("click", function () { fetchStatus(false); });
+
+// Notifications default to on, so the permission prompt is offered as soon as
+// the page opens; browsers that require a gesture fall back to the banner.
+paintToggle();
+fetchStatus(true);
+
+// The percentages only move when an account runs, but the countdowns move every
+// minute -- and a window crosses into "about to roll over" on the clock, not on
+// a poll. Notifying only at poll time meant that with the defaults (a 60-minute
+// check and a 60-minute threshold) an account 61 minutes from reset was missed
+// and then announced with about a minute left, too late to act on. Deciding here
+// instead keeps the banner and the notification saying the same thing; the
+// resets_at-keyed dedupe still allows only one per window.
+setInterval(function () {
+  if (!latest) return;
+  try {
+    render(latest);
+    fireNotifications(currentCandidates(latest, Date.now()));
+  } catch (e) {
+    // A render fault must stay contained: the poll timer lives outside this tick
+    // and has to keep running.
+  }
+}, 30000);
+</script>
+</body>
+</html>

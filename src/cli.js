@@ -13,6 +13,8 @@ import {
 import { ensureClaudeHome } from "./workspace.js";
 import { buildEnv, runClaude } from "./run.js";
 import { collectStatus, renderStatus } from "./status.js";
+import { DASHBOARD_DEFAULTS, openInBrowser, startDashboard } from "./dashboard.js";
+import { RECOMMEND_DEFAULTS } from "./quota.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -91,12 +93,67 @@ program
 
 program
   .command("status")
-  .alias("dashboard")
-  .description("Show every account with its login, history, and shared-link state")
+  .description("Show every account with its login, history, shared-link state, and cached quota")
   .option("--json", "print the same data as JSON")
   .action(async (opts) => {
     const status = await collectStatus();
     console.log(opts.json ? JSON.stringify(status, null, 2) : renderStatus(status));
+  });
+
+function positiveInt(label) {
+  return (value) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(`${label} must be a positive whole number, got "${value}".`);
+    }
+    return parsed;
+  };
+}
+
+program
+  .command("dashboard")
+  .description("Serve a local web dashboard with per-account quota and reset countdowns")
+  .option("-p, --port <number>", "port to listen on", positiveInt("--port"), DASHBOARD_DEFAULTS.port)
+  .option("--host <address>", "loopback address to bind (127.0.0.1, localhost, ::1)", DASHBOARD_DEFAULTS.host)
+  .option("--open", "open the dashboard in your browser")
+  .option(
+    "--interval <minutes>",
+    "how often the page re-reads quota from disk",
+    positiveInt("--interval"),
+    DASHBOARD_DEFAULTS.pollMinutes
+  )
+  .option(
+    "--reset-within <minutes>",
+    "suggest an account whose 5-hour window resets within this many minutes",
+    positiveInt("--reset-within"),
+    RECOMMEND_DEFAULTS.resetWithinMinutes
+  )
+  .option(
+    "--headroom-below <percent>",
+    "only suggest an account that has used at most this much of the window",
+    positiveInt("--headroom-below"),
+    RECOMMEND_DEFAULTS.headroomBelowPercent
+  )
+  .action(async (opts) => {
+    const { server, url } = await startDashboard({
+      port: opts.port,
+      host: opts.host,
+      pollMinutes: opts.interval,
+      recommend: {
+        resetWithinMinutes: opts.resetWithin,
+        headroomBelowPercent: opts.headroomBelow,
+      },
+    });
+
+    console.log(`cc-switch dashboard on ${url}`);
+    console.log("Press Ctrl+C to stop.");
+    if (opts.open) openInBrowser(url);
+
+    // Ctrl+C during a plain `listen` already exits, but closing the server
+    // first lets an in-flight response finish instead of being cut off.
+    process.on("SIGINT", () => {
+      server.close(() => process.exit(0));
+    });
   });
 
 program

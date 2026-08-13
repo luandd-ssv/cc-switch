@@ -1,12 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-08-13
 
 ### Added
 
-- `cc-switch status` (aliased to `cc-switch dashboard`) reports every account in one screen: login state, history mode, last activity, and the state of each shared link. Problems print as notes with the command that fixes them. `--json` emits the same data for scripts. The report reads the filesystem on request and starts no server.
+- `cc-switch status` reports every account in one screen: login state, history mode, last activity, and the state of each shared link. Problems print as notes with the command that fixes them. `--json` emits the same data for scripts. The report reads the filesystem on request and starts no server.
+- Per-account quota. `status` gained a `QUOTA` block showing 5-hour and 7-day utilization, the countdown to each reset, and when that account last refreshed its own cache. Claude Code writes the rate-limit response into `.claude.json`, and every cc-switch account owns a copy, so this costs no API call and spends no quota. A percentage whose window has already rolled over prints as `-` rather than as a current figure; the countdown stays exact because `resets_at` is absolute.
+- `cc-switch dashboard` serves that data as a local web page: quota meters per account, an accounts table with plan/email/organization, and the last session Claude Code recorded per account (cost, tokens, models). Flags: `--port`, `--host`, `--open`, `--interval`, `--reset-within`, `--headroom-below`. The page reports the account holder's email, organization and project paths, so the server refuses any request whose `Host` header is not local, and `--host` accepts loopback addresses only: a `Host` header is trivially forged by anything that is not a browser, and a browser on another device would be refused regardless, so a wider bind would open the port without making the page reachable.
+- Browser notifications on the dashboard, on by default. An account is suggested when its 5-hour window resets within 60 minutes while at most 70% of it has been used — the case where spending it first wastes nothing. The page evaluates that against its own clock every 30 seconds, so the alert does not wait on the hourly re-read of `.claude.json`; `--interval` governs only that re-read. Each window notifies once, and a logged-out account is never suggested. Notifications need the tab open; there is no service worker and no background process.
 - `cc-switch --version`.
 - CI runs the suite on macOS alongside Windows and Linux.
+
+### Changed
+
+- `cc-switch dashboard` is now the web dashboard rather than an alias for `cc-switch status`. Use `cc-switch status` for the terminal report.
 
 ### Fixed
 
