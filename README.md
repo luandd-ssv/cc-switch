@@ -1,56 +1,149 @@
+<div align="center">
+
 # cc-switch
 
-Run several Claude Code accounts on one machine and switch between them with a single command. No re-authentication.
+**One CLI for many Claude Code accounts — switch instantly, no re-authentication.**
 
-Each account gets its own `CLAUDE_CONFIG_DIR`, so credentials never mix. Your `agents/`, `skills/`, and by default your conversation history stay linked to `~/.claude`, so your setup follows you into whichever account you are using.
+Create as many accounts as you need, log in once each, then jump between them with a single command.
+Skills, agents, and conversation history stay shared; only credentials change.
 
-The tool talks to Claude Code (Anthropic). DeepSeek support sits on the shelf rather than cancelled.
+[![npm](https://img.shields.io/npm/v/cc-switch?color=cb3837&logo=npm)](https://www.npmjs.com/package/cc-switch)
+[![CI](https://github.com/luandd-ssv/cc-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/luandd-ssv/cc-switch/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b5cf6)
+![Dependencies](https://img.shields.io/badge/runtime%20deps-1-10b981)
+
+**English** | [Tiếng Việt](README.vi.md)
+
+</div>
+
+```sh
+# Multiple Claude Code accounts — login once per account, switch forever
+cc-switch add work && cc-switch add personal
+
+cc-switch use work
+cc-switch run --continue
+
+cc-switch use personal
+cc-switch run -p "review this PR"
+
+cc-switch list
+cc-switch status        # login state, shared-link health, last active
+```
+
+| You want… | Command pattern |
+|-----------|-----------------|
+| Several Claude Code accounts | `cc-switch add <name>` → `cc-switch use <name>` → `cc-switch run` |
+| Switch without re-login | `cc-switch use <other>` |
+| Resume a past session | `cc-switch run -- --continue` (history is shared) |
+| See account health at a glance | `cc-switch status` |
+| Keep one account's history private | `cc-switch add <name> --no-share-history` |
+
+- 🔁 **Multi-account switcher** — as many identities as you need; log in once, switch forever
+- 🧰 **Full passthrough** — `cc-switch run [args...]` ≡ `claude [args...]` (`--continue`, `--resume`, `-p`, …)
+- 🤝 **Shared workspace** — agents, skills, and session history stay linked to `~/.claude` by default
+- 📋 **Status report** — login state, shared-link health, and last-active time for every account
+- 🧹 **Isolated by design** — each account's credentials live in their own `CLAUDE_CONFIG_DIR`, nothing else touched
+
+---
+
+## Mental model
+
+```text
+                    ┌───────────────────────────────────┐
+                    │          Claude Code CLI           │
+                    │   agents · skills · session history │
+                    └──────────────────┬──────────────────┘
+                                       │  cc-switch run
+              ┌─────────────────────────┼─────────────────────────┐
+              ▼                         ▼                         ▼
+         account: work            account: personal          account: client
+      CLAUDE_CONFIG_DIR A       CLAUDE_CONFIG_DIR B       CLAUDE_CONFIG_DIR C
+      (own credentials)         (own credentials)         (own credentials, isolated history)
+```
+
+Every **cc-switch account** is a named profile under `~/.cc-switch/accounts/<name>`.
+Switching only changes **which credentials** `claude` runs with — not your agents, skills, or (by default) your project history.
+
+| Piece | Shared across accounts? |
+|-------|--------------------------|
+| Credentials (`.credentials.json`, `.claude.json`) | No — one set per account |
+| `agents/`, `skills/` | Yes, always |
+| Session history (`projects/`) | Yes by default, opt out with `--no-share-history` |
+
+---
 
 ## Install
 
-```bash
+```sh
 npm install -g cc-switch
 ```
 
-You need Node 18 or newer, plus `claude` (the `@anthropic-ai/claude-code` package) on your PATH. CI runs the test suite on Windows, macOS, and Linux.
+**Requirements:** Node 18+, plus [`claude`](https://claude.com/claude-code) (`@anthropic-ai/claude-code`) on your PATH. CI runs the test suite on Windows, macOS, and Linux.
 
 ### Read this first on macOS
 
-Claude Code stores subscription credentials in the encrypted macOS Keychain, and `CLAUDE_CONFIG_DIR` does not relocate them. Anthropic's [credential management docs](https://code.claude.com/docs/en/iam) place `.credentials.json` under the config directory "on Linux or Windows" only. Every cc-switch account on macOS therefore shares a single Keychain login. Settings, agents, skills, and conversation history still separate per account, so the identity behind the requests stays the same. Credential isolation, the reason to reach for this tool, holds on Windows and Linux. `cc-switch status` repeats this caveat when it runs on macOS.
+Claude Code stores subscription credentials in the encrypted macOS Keychain, and `CLAUDE_CONFIG_DIR` does not relocate them — Anthropic's [credential management docs](https://code.claude.com/docs/en/iam) place `.credentials.json` under the config directory "on Linux or Windows" only. Every cc-switch account on macOS therefore shares a single Keychain login. Settings, agents, skills, and conversation history still separate per account, so credential isolation — the reason to reach for this tool — holds on Windows and Linux, but not on macOS. `cc-switch status` repeats this caveat when it runs there.
 
-## Usage
+---
 
-```bash
+## Quick start
+
+```sh
+cc-switch add work          # Claude prompts Anthropic login on first run
 cc-switch add personal
-cc-switch add work
+
+cc-switch use work
+cc-switch run                # logs in the first time, straight in after that
+
+cc-switch use personal       # switch — no re-login for `work` when you come back
+cc-switch run
 
 cc-switch list
 cc-switch status
-cc-switch use work
-
-cc-switch run
-cc-switch run -- --continue
-
-cc-switch current
-cc-switch remove work
 ```
 
-`add` creates an account. The first `run` against it triggers the normal Claude Code OAuth login. After that, `use` then `run`.
+`add` creates an account. The first `run` against it triggers the normal Claude Code OAuth login; every `run` after that reuses the cached credentials. Everything after `run` passes through to `claude` untouched, including quoted phrases and paths containing spaces:
 
-Everything after `run` passes through to `claude` untouched, including quoted phrases and paths containing spaces:
-
-```bash
+```sh
 cc-switch run -p "summarise the auth module"
 cc-switch run --add-dir "C:\Program Files\my app"
 ```
 
 `cc-switch run` exits with the code `claude` returned, so it composes in scripts and CI.
 
-## Status dashboard
+To keep one account's conversation history private instead of shared:
 
-`cc-switch status` (aliased to `cc-switch dashboard`) shows the state of every account in one screen:
-
+```sh
+cc-switch add client --no-share-history
 ```
+
+Credentials (`.credentials.json`, `.claude.json`) stay separate per account regardless of this flag.
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `cc-switch add <name>` | Create an account (`--no-share-history` to keep its history private) |
+| `cc-switch use <name>` | Set the active account |
+| `cc-switch run [claude args...]` (alias `code`) | Launch `claude` as the active account, all flags pass through |
+| `cc-switch list` | List every account, `*` marks the active one |
+| `cc-switch current` | Print the active account's name |
+| `cc-switch status` (alias `dashboard`) | Login state, shared-link health, and last-active time per account |
+| `cc-switch remove <name>` | Delete an account (refuses on the active one) |
+| `cc-switch --version` | Print the installed version |
+
+---
+
+## Status report
+
+```sh
+cc-switch status
+```
+
+```text
 platform       linux
 config root    /home/you/.cc-switch
 shared from    /home/you/.claude
@@ -63,44 +156,40 @@ active account work
 *  work      shared    yes    2026-08-13 06:44  agents:shared skills:shared projects:shared
 ```
 
-`LOGIN` reads the per-account `.credentials.json`, so it tells you which accounts have finished their OAuth login and which still need a first `run`. `SHARED LINKS` reports each linked directory as `shared`, `local` (a real directory you created), `unlinked`, `absent` (nothing to link to under `~/.claude` yet), or `BROKEN`. Anything needing attention prints as a note underneath, along with the command that fixes it.
+`LOGIN` reads each account's `.credentials.json`, so it shows which accounts have finished OAuth and which still need a first `run`. `SHARED LINKS` reports each linked directory as `shared`, `local` (a real directory you created), `unlinked`, `absent` (nothing to link to under `~/.claude` yet), or `BROKEN`. Anything needing attention prints as a note underneath, with the command that fixes it.
 
 Add `--json` to feed the same data to a script:
 
-```bash
+```sh
 cc-switch status --json
 ```
 
-The report reads the filesystem on request and starts no server or background process. Token counts and spend sit outside its scope, since cc-switch records neither.
+The report reads the filesystem on request — it starts no server and no background process. Token counts and spend sit outside its scope, since cc-switch records neither.
 
-## Sharing conversation history
-
-`cc-switch` links `~/.claude/projects`, the directory holding Claude Code session transcripts, into each account. `claude --continue` and `--resume` then reach the same history from any account.
-
-To seal an account's history off, pass `--no-share-history`:
-
-```bash
-cc-switch add work --no-share-history
-```
-
-Reach for the flag on an account that needs its project history private, such as a dedicated client identity. Credentials (`.credentials.json`, `.claude.json`) stay separate per account regardless of the flag.
-
-`use` and `run` refresh these links, so a directory you add under `~/.claude` later gets picked up on the next switch. Recreating the account is never required.
+---
 
 ## How it works
 
 `cc-switch run` reads the active account and launches `claude` with `CLAUDE_CONFIG_DIR` pointing at `~/.cc-switch/accounts/<name>/claude-home`. Claude Code caches credentials inside that directory, so returning to an account skips the login.
 
-On macOS and Linux, `cc-switch` resolves `claude` on your PATH and spawns it, passing arguments as a list. No shell sits in between.
+`~/.claude/agents`, `~/.claude/skills`, and — by default — `~/.claude/projects` (session transcripts) are linked into every account's `claude-home`, so `claude --continue` and `--resume` reach the same history no matter which account you're in. `use` and `run` refresh these links on every switch, so a directory added under `~/.claude` later gets picked up automatically; recreating the account is never required.
 
-On Windows, npm installs `claude` as a `.cmd` shim, and Node refuses to spawn one without a shell. `cc-switch` builds the `cmd.exe` command line itself and quotes each argument, so spaces, backslashes, and characters such as `&` or `|` reach `claude` as written instead of splitting the argument or running a second command. One limit survives: `cmd.exe` expands `%VAR%` before the shim starts, so an argument holding `%PATH%` arrives expanded. A native `claude.exe` install avoids that path.
+On macOS and Linux, `cc-switch` resolves `claude` on your PATH and spawns it, passing arguments as a list — no shell sits in between. On Windows, npm installs `claude` as a `.cmd` shim, and Node refuses to spawn one without a shell; `cc-switch` builds the `cmd.exe` command line itself and quotes each argument, so spaces, backslashes, and characters such as `&` or `|` reach `claude` as written instead of splitting the argument or running a second command. One limit survives: `cmd.exe` expands `%VAR%` before the shim starts, so an argument holding `%PATH%` arrives expanded. A native `claude.exe` install avoids that path.
+
+---
 
 ## Notes
 
 Per-account metadata lives in `~/.cc-switch/accounts/<name>/account.json`. Account directories are created with `0700` permissions, since Claude Code stores its credentials inside them.
 
-This release supports one provider (Anthropic) and ships no usage dashboard.
+This release supports one provider (Anthropic) and ships no usage/cost dashboard.
 
 Account names stay local to the machine and sync nowhere. Two colleagues each naming an account "work" still hold two independent accounts, each pointing at its own Claude Code identity.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute or cut a release.
+
+---
+
+## License
+
+[MIT](LICENSE)
