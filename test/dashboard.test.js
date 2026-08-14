@@ -4,7 +4,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { withTempHome } from "./helpers.js";
-import { createDashboardServer, dashboardUrl, isLocalRequest, resolveBindHost } from "../src/dashboard.js";
+import {
+  createDashboardServer,
+  dashboardUrl,
+  isLocalRequest,
+  isSameOriginRequest,
+  resolveBindHost,
+} from "../src/dashboard.js";
 import { saveAccount, setCurrent, claudeHomeDir } from "../src/accounts.js";
 import { ensureClaudeHome } from "../src/workspace.js";
 
@@ -68,6 +74,41 @@ test("isLocalRequest accepts loopback names and rejects anything else", () => {
 // The Host check is the only thing guarding the port, and anything that is not a
 // browser can forge that header. Binding wider would publish email, organisation
 // and project paths while still 403-ing the LAN browsers such a bind is for.
+// /api/status can spawn `claude -p /usage`, and a cross-origin GET needs no
+// preflight and carries a loopback Host like any genuine request -- so the Host
+// check cannot tell the two apart. Sec-Fetch-Site can, and is what keeps a page
+// the user merely visited from launching Claude Code processes on their machine.
+test("isSameOriginRequest only trusts the page's own fetch, a typed URL, or a non-browser client", () => {
+  const req = (headers) => ({ headers });
+
+  assert.equal(isSameOriginRequest(req({ "sec-fetch-site": "same-origin" })), true);
+  assert.equal(isSameOriginRequest(req({ "sec-fetch-site": "none" })), true);
+  // curl or a script: no web page can direct it, so it keeps working.
+  assert.equal(isSameOriginRequest(req({})), true);
+
+  assert.equal(isSameOriginRequest(req({ "sec-fetch-site": "cross-site" })), false);
+  assert.equal(isSameOriginRequest(req({ "sec-fetch-site": "same-site" })), false);
+  // An Origin without Sec-Fetch-Site still has to be loopback.
+  assert.equal(isSameOriginRequest(req({ origin: "http://evil.example.com" })), false);
+  assert.equal(isSameOriginRequest(req({ origin: "not a url" })), false);
+  assert.equal(isSameOriginRequest(req({ origin: "http://127.0.0.1:6769" })), true);
+});
+
+test("a cross-site GET to /api/status still answers, but never triggers a refresh", async () => {
+  await ensureClaudeHome("work", { shareHistory: true });
+  await saveAccount("work", { shareHistory: true });
+  await listen();
+
+  const res = await fetch(`${base}/api/status`, { headers: { "sec-fetch-site": "cross-site" } });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  // NO_PATH already forces enabled:false, so the refresh flag alone would not
+  // prove anything; what matters is that the request is treated as a plain
+  // cached read rather than as a licence to spawn.
+  assert.equal(body.quotaRefresh.enabled, false);
+  assert.deepEqual(body.refreshed, []);
+});
+
 test("resolveBindHost refuses to bind past loopback", () => {
   assert.equal(resolveBindHost("127.0.0.1"), "127.0.0.1");
   assert.equal(resolveBindHost("localhost"), "localhost");

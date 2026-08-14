@@ -15,6 +15,7 @@ import { buildEnv, runClaude } from "./run.js";
 import { collectStatus, renderStatus } from "./status.js";
 import { DASHBOARD_DEFAULTS, openInBrowser, startDashboard } from "./dashboard.js";
 import { RECOMMEND_DEFAULTS } from "./quota.js";
+import { REFRESH_DEFAULTS } from "./refresh.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -91,15 +92,6 @@ program
     console.log(`Active account: ${name}`);
   });
 
-program
-  .command("status")
-  .description("Show every account with its login, history, shared-link state, and cached quota")
-  .option("--json", "print the same data as JSON")
-  .action(async (opts) => {
-    const status = await collectStatus();
-    console.log(opts.json ? JSON.stringify(status, null, 2) : renderStatus(status));
-  });
-
 function positiveInt(label) {
   return (value) => {
     const parsed = Number(value);
@@ -111,6 +103,25 @@ function positiveInt(label) {
 }
 
 program
+  .command("status")
+  .description(
+    `Show every account with its login, history, shared-link state, and quota (auto-refreshed via "claude -p /usage" when a cache is older than ${REFRESH_DEFAULTS.staleMinutes} minutes)`
+  )
+  .option("--json", "print the same data as JSON")
+  .option("--no-refresh", "skip the automatic quota refresh and only read what's already cached on disk")
+  .option(
+    "--stale-after <minutes>",
+    "treat cached quota older than this as due for a refresh",
+    positiveInt("--stale-after"),
+    REFRESH_DEFAULTS.staleMinutes
+  )
+  .action(async (opts) => {
+    const refresh = opts.refresh === false ? false : { staleMinutes: opts.staleAfter };
+    const status = await collectStatus(process.env, { refresh });
+    console.log(opts.json ? JSON.stringify(status, null, 2) : renderStatus(status));
+  });
+
+program
   .command("dashboard")
   .description("Serve a local web dashboard with per-account quota and reset countdowns")
   .option("-p, --port <number>", "port to listen on", positiveInt("--port"), DASHBOARD_DEFAULTS.port)
@@ -118,10 +129,11 @@ program
   .option("--open", "open the dashboard in your browser")
   .option(
     "--interval <minutes>",
-    "how often the page re-reads quota from disk",
+    'how often the page polls, and how old a cache may get before that poll actively refreshes it via "claude -p /usage"',
     positiveInt("--interval"),
     DASHBOARD_DEFAULTS.pollMinutes
   )
+  .option("--no-refresh", "never actively refresh quota; only read what's already cached on disk")
   .option(
     "--reset-within <minutes>",
     "suggest an account whose 5-hour window resets within this many minutes",
@@ -139,6 +151,7 @@ program
       port: opts.port,
       host: opts.host,
       pollMinutes: opts.interval,
+      refresh: opts.refresh === false ? false : undefined,
       recommend: {
         resetWithinMinutes: opts.resetWithin,
         headroomBelowPercent: opts.headroomBelow,
@@ -150,8 +163,14 @@ program
     if (opts.open) openInBrowser(url);
 
     // Ctrl+C during a plain `listen` already exits, but closing the server
-    // first lets an in-flight response finish instead of being cut off.
+    // first lets an in-flight response finish instead of being cut off. That
+    // wait used to be a file read; a response can now be blocked on a quota
+    // refresh's child processes for tens of seconds, which would read as a
+    // hang, so the graceful close gets a deadline rather than the whole
+    // budget.
     process.on("SIGINT", () => {
+      const forced = setTimeout(() => process.exit(0), 2000);
+      forced.unref();
       server.close(() => process.exit(0));
     });
   });

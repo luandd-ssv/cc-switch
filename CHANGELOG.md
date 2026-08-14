@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 — 2026-08-14
+
+### Added
+
+- Quota refreshes itself. Until now a percentage was only as fresh as that account's last run, so an account left alone for a day reported day-old numbers. `status` and `dashboard` now run `claude -p "/usage"` for any account whose cache is older than the staleness threshold — the same call that writes the cache in the first place — and read the result back. `--no-refresh` keeps either command to the on-disk cache exactly as before; `cc-switch status --stale-after <minutes>` moves the threshold.
+- The threshold has a floor of 3 minutes. Claude Code has its own internal cooldown before it will re-fetch quota, so asking for less produces refreshes that change nothing and look indistinguishable from a failure. A lower `--stale-after` or `--interval` is raised to the floor, and both the `QUOTA` header and the dashboard footer state the threshold that was actually applied rather than the one requested.
+- Refresh outcomes are reported rather than swallowed. A refresh that runs and leaves the cache untouched means the saved login has most likely expired — the child still exits cleanly, so nothing else would reveal it — and prints as a note naming the account. A non-zero exit is kept separate, since that points at the `claude` install rather than at any account's login. `--json` carries the same detail in `quotaRefresh` and `refreshed`.
+- Refreshes are bounded on every axis: at most 3 run at once, each child is killed after 20 seconds (with its whole process tree, so a `.cmd` shim's child cannot outlive it), and the pass as a whole gives up after 25 seconds and leaves the rest for the next call. Overlapping callers — two dashboard tabs, a manual refresh landing mid-poll — join one attempt per account instead of each spawning their own.
+- An account that fails to refresh is not retried until the staleness window has passed again. Staleness alone could not rate-limit this: an account with no cache at all has no timestamp to compare against, so a cache that never materialises would otherwise spawn a process on every single command and every poll.
+
+### Changed
+
+- The dashboard's `--interval` now defaults to 3 minutes rather than 60, and doubles as the staleness threshold: by the time a poll lands, the previous one has already made sure the cache is no older than that. Notification timing is unaffected — a window crosses into "about to roll over" on the clock, and the page still decides that every 30 seconds against its own.
+- `LAST ACTIVE` follows real activity again. It used to include `.claude.json`'s mtime, which an automatic refresh rewrites every time it runs — that column would have read "just now" forever for any refreshed account. It now follows `history.jsonl` and the session start Claude Code records, and treats `.credentials.json` as a last-resort fallback only, since that file is rewritten whenever the OAuth token is rotated — something a refresh triggers on its own.
+- `/api/status` performs a refresh only for requests the page itself made. The endpoint used to be a pure read, so a cross-origin `GET` — which needs no preflight and carries a loopback `Host` like any genuine request — was harmless; now that it can spawn processes, any page the user happened to visit could have triggered them. Cross-site callers still get the cached read.
+
+### Fixed
+
+- A report no longer mixes two clocks. Refreshing takes seconds, which left `generatedAt` stamped before the data it described: "as of" ages came out negative, and a window that rolled over mid-refresh still counted as fresh. The clock is re-stamped and every account re-read once a refresh has run, unless the caller pinned its own `now`.
+- `Ctrl+C` on `cc-switch dashboard` exits promptly. The graceful close waits for in-flight responses, which can now be blocked on a refresh's child processes, so that wait has a 2-second deadline instead of the full refresh budget.
+
 ## 0.2.1 — 2026-08-13
 
 ### Documented

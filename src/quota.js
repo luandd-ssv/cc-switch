@@ -28,9 +28,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function readJson(file) {
   // A missing file means the account has never been launched, which is final.
   // A malformed one almost always means Claude Code is mid-write, and giving up
-  // on that read would report a live account as never launched -- for a whole
-  // poll interval, since the page only re-checks hourly. One retry tells the two
-  // apart without failing the dashboard either way.
+  // on that read would report a live account as never launched -- for up to a
+  // whole poll interval, however long that currently is (see refresh.js /
+  // DASHBOARD_DEFAULTS.pollMinutes). One retry tells the two apart without
+  // failing the dashboard either way.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let raw;
     try {

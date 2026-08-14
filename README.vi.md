@@ -44,7 +44,7 @@ cc-switch dashboard     # cùng dữ liệu đó dưới dạng web, kèm đếm
 - 🔁 **Chuyển đổi đa tài khoản** — bao nhiêu định danh tùy ý; đăng nhập một lần, chuyển mãi mãi
 - 🧰 **Chuyển tiếp toàn bộ tham số** — `cc-switch run [args...]` ≡ `claude [args...]` (`--continue`, `--resume`, `-p`, …)
 - 🤝 **Không gian làm việc dùng chung** — agents, skills và lịch sử phiên vẫn link về `~/.claude` mặc định
-- 📊 **Quota theo từng tài khoản** — mức dùng khung 5 giờ và 7 ngày kèm đếm ngược chính xác tới mốc reset, đọc từ cache của chính tài khoản đó
+- 📊 **Quota theo từng tài khoản** — mức dùng khung 5 giờ và 7 ngày kèm đếm ngược chính xác tới mốc reset, tự làm mới từ cache của chính tài khoản đó
 - 🔔 **"Nên dùng tài khoản này"** — dashboard web thông báo khi một khung 5 giờ sắp trôi qua mà quota vẫn còn
 - 📋 **Báo cáo trạng thái** — trạng thái đăng nhập, tình trạng link chia sẻ, lần hoạt động gần nhất cho từng tài khoản
 - 🧹 **Cô lập theo thiết kế** — credentials của mỗi tài khoản nằm trong `CLAUDE_CONFIG_DIR` riêng, không đụng gì khác
@@ -166,7 +166,7 @@ active account work
    personal  shared    yes    2026-08-12 09:31  agents:shared skills:shared projects:shared
 *  work      shared    yes    2026-08-13 06:44  agents:shared skills:shared projects:shared
 
-QUOTA  (read from each account's cache, no API calls)
+QUOTA  (auto-refreshed via "claude -p /usage" when a cache is older than 3 min)
    ACCOUNT   PLAN    5H   7D   RESET IN  AS OF
    personal  max_5x  -    12%  -         09:31 (5h ago)
 *  work      max_5x  59%  8%   42m       06:44 (12m ago)
@@ -183,17 +183,19 @@ Thêm `--json` để lấy cùng dữ liệu đó cho script:
 cc-switch status --json
 ```
 
-Báo cáo đọc filesystem theo yêu cầu — không khởi động server hay tiến trình nền nào.
+Báo cáo đọc filesystem theo yêu cầu — không khởi động server hay tiến trình nền nào. Nếu cache quota của account nào cũ hơn ngưỡng cho phép (mặc định 3 phút — bản thân Claude Code có thời gian chờ (cooldown) nội bộ trước khi thực sự lấy lại quota, giữ ngưỡng cao hơn mức đó là điều kiện để lần làm mới có ý nghĩa thật), nó sẽ chạy `claude -p "/usage"` cho account đó trước để làm mới; dùng `--no-refresh` để chỉ đọc offline, hoặc `--stale-after <minutes>` để đổi ngưỡng. Giá trị dưới 3 sẽ được nâng lên 3 — cooldown đó là của Claude Code chứ không phải của cc-switch, và poll dày hơn mức đó chỉ tạo ra những lần làm mới không thay đổi gì. Dòng tiêu đề `QUOTA` luôn ghi đúng ngưỡng đã thực sự được áp dụng.
 
 ---
 
 ## Quota
 
-Claude Code lưu lại phản hồi giới hạn (rate limit) mà nó nhận được vào `.claude.json`, và cc-switch cho mỗi account một bản riêng của file đó. Đọc file này là cách `status` và `dashboard` hiện quota theo từng account mà **không gọi API nào, cũng không tốn quota chỉ để biết còn lại bao nhiêu**.
+Claude Code lưu lại phản hồi giới hạn (rate limit) mà nó nhận được vào `.claude.json`, và cc-switch cho mỗi account một bản riêng của file đó. Đọc file này là cách `status` và `dashboard` hiện quota theo từng account mà **không tốn quota chỉ để biết còn lại bao nhiêu**.
 
-Điều đó có một hệ quả cần hiểu rõ: con số phần trăm chỉ mới đến lần chạy gần nhất của account đó. cc-switch không bao giờ trình bày số cũ như thể nó còn đúng — khi mốc `resets_at` của một khung đã trôi qua, phần trăm trong cache đang nói về một hạn mức mà server đã thay bằng hạn mức mới, nên nó in ra `-` (`—` trên trang web) thay vì con số cũ. **Phần đếm ngược thì luôn chính xác**, vì `resets_at` là mốc thời gian tuyệt đối.
+Giờ một con số phần trăm chỉ có thể cũ tối đa vài phút: mỗi khi `status` hoặc `dashboard` thấy cache cũ hơn ngưỡng, nó tự chạy `claude -p "/usage"` cho account đó — đúng lệnh đã ghi ra cache này từ đầu. Khi thử nghiệm, lệnh này không làm tốn quota đo được và chỉ mất vài giây, nhưng nó *vẫn* là một tiến trình Claude Code thật chứ không phải chỉ đọc file — nếu bạn không muốn có gì chạy thay mình, `--no-refresh` giữ cả hai lệnh ở mức chỉ đọc cache trên đĩa, đúng như trước đây. Account đã đăng xuất thì bị bỏ qua vì không có gì để làm mới, và account nào làm mới thất bại sẽ không bị thử lại cho đến khi hết ngưỡng cache cũ.
 
-`AS OF` cho biết mỗi account làm mới cache của nó lần cuối khi nào. Muốn làm mới thì phải chạy account đó (`cc-switch use <name> && cc-switch run`) — theo thiết kế, không có cách nào khác.
+Khi mốc `resets_at` của một khung đã trôi qua, phần trăm trong cache đang nói về một hạn mức mà server đã thay bằng hạn mức mới, nên nó in ra `-` (`—` trên trang web) thay vì con số cũ. **Phần đếm ngược thì luôn chính xác**, vì `resets_at` là mốc thời gian tuyệt đối.
+
+`AS OF` cho biết cache của account được ghi lần cuối khi nào — do lần tự làm mới ở trên, hoặc do một lần `cc-switch run` bình thường. Nếu làm mới chạy xong mà mốc thời gian không đổi, cc-switch sẽ in ghi chú: gần như chắc chắn account đó đã hết hạn đăng nhập và cần `cc-switch run` lại.
 
 ### Dashboard web
 
@@ -208,14 +210,15 @@ Trang gồm: dải thống kê (số account, account đang hoạt động, acco
 
 > **Use work now** — 5h window resets in 42m with only 59% used. Spend it before it rolls over.
 
-Một khung bước vào trạng thái "sắp hết" theo đồng hồ chứ không theo nhịp làm mới, nên trang tự quyết định mỗi 30 giây theo đồng hồ của chính nó, còn `--interval` chỉ quyết định bao lâu đọc lại phần trăm từ đĩa. Mỗi khung chỉ thông báo một lần (khóa chống trùng có chứa `resets_at`, nên khung kế tiếp lại thông báo bình thường), và account đã đăng xuất thì không bao giờ được gợi ý — quota còn lại của nó không tiêu được nếu chưa đăng nhập lại. Có thể điều chỉnh quy tắc, hoặc biến trang thành bảng theo dõi cập nhật nhanh hơn:
+Một khung bước vào trạng thái "sắp hết" theo đồng hồ chứ không theo nhịp làm mới, nên trang tự quyết định mỗi 30 giây theo đồng hồ của chính nó. `--interval` quyết định việc khác: bao lâu trang poll một lần, và — vì lần poll đó cũng chính là ngưỡng cache cũ — cache được phép cũ tối đa bao lâu trước khi lần poll đó chủ động làm mới nó bằng `claude -p "/usage"`. Mỗi khung chỉ thông báo một lần (khóa chống trùng có chứa `resets_at`, nên khung kế tiếp lại thông báo bình thường), và account đã đăng xuất thì không bao giờ được gợi ý — quota còn lại của nó không tiêu được nếu chưa đăng nhập lại. Có thể điều chỉnh quy tắc, hoặc biến trang thành bảng theo dõi cập nhật nhanh hơn:
 
 | Tham số | Mặc định | Ý nghĩa |
 |------|---------|---------|
 | `--port <n>` | `6769` | Cổng lắng nghe |
 | `--host <addr>` | `127.0.0.1` | Địa chỉ loopback để bind — `127.0.0.1`, `localhost` hoặc `::1`; rộng hơn thì bị từ chối |
 | `--open` | tắt | Mở dashboard trong trình duyệt |
-| `--interval <minutes>` | `60` | Bao lâu trang đọc lại quota từ đĩa |
+| `--interval <minutes>` | `3` | Bao lâu trang poll một lần, cũng là ngưỡng cũ để kích hoạt làm mới chủ động |
+| `--no-refresh` | tắt | Không bao giờ chủ động làm mới; chỉ đọc những gì đã có sẵn trong cache |
 | `--reset-within <minutes>` | `60` | Gợi ý account có khung 5 giờ reset trong khoảng thời gian này |
 | `--headroom-below <percent>` | `70` | Chỉ gợi ý account đã dùng tối đa mức này của khung |
 

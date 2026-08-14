@@ -157,8 +157,10 @@
 </header>
 <p class="source-note">
   Quota comes from each account's own <code>.claude.json</code> cache, written by Claude Code itself.
-  This page makes <strong>no API calls</strong> and spends no quota, so a percentage is only as fresh as
-  that account's last run &mdash; the reset countdown is exact either way.
+  This page reads that cache and, when it gets stale, runs <code>claude -p /usage</code> to refresh it
+  &mdash; the same call that writes the cache in the first place, with no measurable quota cost. Start
+  the dashboard with <code>--no-refresh</code> to read the cache only. The reset countdown is exact
+  either way.
 </p>
 
 <div id="banners"></div>
@@ -255,7 +257,7 @@ function fmtTokens(n) {
 function fmtCost(v) { return v == null ? "-" : "$" + Number(v).toFixed(2); }
 // A corrupt timestamp in .claude.json must not throw here: an exception during
 // render would blank the page and, before the poll loop was made failure-proof,
-// stop the hourly re-check for every other account too.
+// stop the periodic re-check for every other account too.
 function fmtStamp(ms) {
   var d = new Date(ms);
   return isFinite(d.getTime()) ? d.toISOString().slice(0, 16).replace("T", " ") : "-";
@@ -435,7 +437,7 @@ function renderBanners(data, candidates) {
   }
   if (notifyEnabled() && "Notification" in window && Notification.permission === "denied") {
     html += '<div class="banner note">Notifications are blocked for this site in your browser settings, ' +
-      "so the hourly check can only update this page.</div>";
+      "so the periodic check can only update this page.</div>";
   }
   candidates.forEach(function (c) {
     html += '<div class="banner tip"><strong>' + esc(c.title) + "</strong><span>" + esc(c.body) + "</span></div>";
@@ -450,7 +452,7 @@ function renderBanners(data, candidates) {
 }
 
 function renderFooter(data) {
-  var poll = (data.dashboard && data.dashboard.pollMinutes) || 60;
+  var poll = (data.dashboard && data.dashboard.pollMinutes) || 3;
   var t = (data.recommendations && data.recommendations.thresholds) || {};
   var rows = [
     ["config root", data.root],
@@ -460,12 +462,22 @@ function renderFooter(data) {
     return '<div class="row"><span class="k">' + esc(r[0]) + "</span><code>" + esc(r[1]) + "</code></div>";
   }).join("");
 
+  // The server clamps the staleness threshold to its own floor, so --interval 1
+  // does not mean caches are refreshed once a minute. Reporting the threshold
+  // the server actually applied keeps this line from promising otherwise;
+  // pollMinutes still describes the polling on its own.
+  var refresh = data.quotaRefresh || {};
+  var staleNote = refresh.enabled
+    ? ", actively refreshing any account cache older than " + esc(refresh.staleMinutes) +
+      " minutes via <code>claude -p /usage</code>"
+    : ", reading only what is already cached on disk (refresh disabled)";
+
   $("foot").innerHTML = rows +
     "<div class=\"row\"><span class=\"k\">notify rule</span><span>an account is suggested when its 5-hour window " +
     "resets within " + esc(t.resetWithinMinutes || 60) + " minutes and at most " +
     esc(t.headroomBelowPercent == null ? 70 : t.headroomBelowPercent) + "% of it has been used</span></div>" +
     "<div class=\"row\"><span class=\"k\">check interval</span><span>every " + esc(poll) +
-    " minutes while this tab stays open</span></div>";
+    " minutes while this tab stays open" + staleNote + "</span></div>";
 }
 
 // ── Notifications ───────────────────────────────────────────
@@ -492,7 +504,7 @@ function requestPermission() {
 }
 
 // One notification per account per window: the key includes resets_at, so the
-// next window notifies again but an hourly re-check of the same one does not.
+// next window notifies again but a repeat poll of the same one does not.
 function alreadySent(key) {
   var raw = load(SENT_KEY);
   var seen = raw ? raw.split("|") : [];
@@ -525,7 +537,7 @@ function fireNotifications(candidates) {
 var latest = null;
 var lastError = null;
 var pollTimer = null;
-var pollMinutes = 60;
+var pollMinutes = 3;
 
 function currentCandidates(data, now) {
   // Recomputed against the wall clock so a candidate whose window closed
@@ -569,7 +581,7 @@ function fetchStatus(andNotify) {
       if (!data || !Array.isArray(data.accounts)) throw new Error("unexpected reply from /api/status");
       latest = data;
       lastError = null;
-      pollMinutes = (data.dashboard && data.dashboard.pollMinutes) || 60;
+      pollMinutes = (data.dashboard && data.dashboard.pollMinutes) || 3;
       render(data);
       if (andNotify) fireNotifications(currentCandidates(data, Date.now()));
     })

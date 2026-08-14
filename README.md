@@ -44,7 +44,7 @@ cc-switch dashboard     # same data as a local web page, with reset countdowns
 - 🔁 **Multi-account switcher** — as many identities as you need; log in once, switch forever
 - 🧰 **Full passthrough** — `cc-switch run [args...]` ≡ `claude [args...]` (`--continue`, `--resume`, `-p`, …)
 - 🤝 **Shared workspace** — agents, skills, and session history stay linked to `~/.claude` by default
-- 📊 **Quota per account** — 5-hour and 7-day utilization with exact reset countdowns, read from each account's own cache
+- 📊 **Quota per account** — 5-hour and 7-day utilization with exact reset countdowns, auto-refreshed from each account's own cache
 - 🔔 **"Use this one next"** — the web dashboard notifies when a window is about to roll over with quota left in it
 - 📋 **Status report** — login state, shared-link health, and last-active time for every account
 - 🧹 **Isolated by design** — each account's credentials live in their own `CLAUDE_CONFIG_DIR`, nothing else touched
@@ -166,7 +166,7 @@ active account work
    personal  shared    yes    2026-08-12 09:31  agents:shared skills:shared projects:shared
 *  work      shared    yes    2026-08-13 06:44  agents:shared skills:shared projects:shared
 
-QUOTA  (read from each account's cache, no API calls)
+QUOTA  (auto-refreshed via "claude -p /usage" when a cache is older than 3 min)
    ACCOUNT   PLAN    5H   7D   RESET IN  AS OF
    personal  max_5x  -    12%  -         09:31 (5h ago)
 *  work      max_5x  59%  8%   42m       06:44 (12m ago)
@@ -183,17 +183,19 @@ Add `--json` to feed the same data to a script:
 cc-switch status --json
 ```
 
-The report reads the filesystem on request — it starts no server and no background process.
+The report reads the filesystem on request — it starts no server and no background process. If any account's quota cache is older than the staleness threshold (3 minutes by default — Claude Code has its own internal cooldown on actually re-fetching quota, and staying above it is what keeps a refresh meaningful), it first runs `claude -p "/usage"` for that account to bring it up to date; pass `--no-refresh` for an offline-only read, or `--stale-after <minutes>` to change the threshold. Values below 3 are raised to 3 — that cooldown is Claude Code's, not cc-switch's, and polling under it only produces refreshes that change nothing. The `QUOTA` header always states the threshold that was actually applied.
 
 ---
 
 ## Quota
 
-Claude Code caches the rate-limit response it receives into `.claude.json`, and cc-switch gives every account its own copy of that file. Reading it is how both `status` and `dashboard` show per-account quota **without calling any API and without spending quota to find out how much is left**.
+Claude Code caches the rate-limit response it receives into `.claude.json`, and cc-switch gives every account its own copy of that file. Reading it is how `status` and `dashboard` show per-account quota **without spending quota to find out how much is left**.
 
-That has one consequence worth understanding: a percentage is only as fresh as that account's last run. cc-switch never presents a stale number as current — once a window's `resets_at` has passed, the cached percentage describes an allowance the server has already replaced, so it prints as `-` (`—` on the web page) instead. The **countdown is exact either way**, because `resets_at` is an absolute timestamp.
+A percentage can now go stale for at most a few minutes: whenever `status` or `dashboard` finds a cache older than the threshold, it runs `claude -p "/usage"` for that account, which is the same call that writes this cache in the first place. In testing that call reported no measurable quota cost and took a few seconds of wall time, but it *is* a real Claude Code process rather than a plain file read — if you would rather nothing ran on your behalf, `--no-refresh` keeps both commands to the on-disk cache, exactly as they behaved before. Accounts that are logged out are skipped, since there is nothing to refresh, and an account whose refresh fails is not retried until the staleness window has passed again.
 
-`AS OF` says when each account last refreshed its own cache. To refresh it, run that account (`cc-switch use <name> && cc-switch run`) — nothing else can, by design.
+Once a window's `resets_at` has passed, the cached percentage describes an allowance the server has already replaced, so it prints as `-` (`—` on the web page) instead of a stale number. The **countdown is exact either way**, because `resets_at` is an absolute timestamp.
+
+`AS OF` says when each account's cache was last written — by the auto-refresh above, or by an ordinary `cc-switch run`. If a refresh runs but the timestamp doesn't move, cc-switch surfaces a note: that almost always means the account's saved login has expired and needs a fresh `cc-switch run`.
 
 ### Web dashboard
 
@@ -208,14 +210,15 @@ The page shows a stat strip (accounts, active account, which account to use next
 
 > **Use work now** — 5h window resets in 42m with only 59% used. Spend it before it rolls over.
 
-A window crosses into "about to roll over" on the clock, not on a refresh, so the page decides every 30 seconds against its own clock and `--interval` only governs how often the percentages are re-read from disk. Each window notifies once (the dedupe key includes `resets_at`, so the next window notifies again), and an account that is logged out is never suggested — its leftover quota cannot be spent without a fresh login. Tune the rule, or turn the page into a faster-refreshing wallboard:
+A window crosses into "about to roll over" on the clock, not on a refresh, so the page decides every 30 seconds against its own clock. `--interval` governs something else: how often the page polls, and — since that poll is also the staleness threshold — how old a cache is allowed to get before that poll actively refreshes it via `claude -p "/usage"`. Each window notifies once (the dedupe key includes `resets_at`, so the next window notifies again), and an account that is logged out is never suggested — its leftover quota cannot be spent without a fresh login. Tune the rule, or turn the page into a faster-refreshing wallboard:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--port <n>` | `6769` | Port to listen on |
 | `--host <addr>` | `127.0.0.1` | Loopback address to bind — `127.0.0.1`, `localhost` or `::1`; anything wider is refused |
 | `--open` | off | Open the dashboard in your browser |
-| `--interval <minutes>` | `60` | How often the page re-reads quota from disk |
+| `--interval <minutes>` | `3` | How often the page polls, and the staleness threshold for the active refresh that poll triggers |
+| `--no-refresh` | off | Never actively refresh; only read whatever is already cached on disk |
 | `--reset-within <minutes>` | `60` | Suggest an account whose 5-hour window resets within this long |
 | `--headroom-below <percent>` | `70` | Only suggest an account that has used at most this much of the window |
 

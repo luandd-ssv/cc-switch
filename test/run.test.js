@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isOnPath, resolveOnPath, quoteForCmd, runClaude, buildEnv } from "../src/run.js";
+import { isOnPath, resolveOnPath, quoteForCmd, runClaude, runClaudeQuiet, buildEnv } from "../src/run.js";
 
 test("buildEnv sets CLAUDE_CONFIG_DIR and keeps inheriting process.env", () => {
   const env = buildEnv({ name: "work" });
@@ -39,6 +39,15 @@ test("quoteForCmd keeps spaces and shell metacharacters inside one argument", ()
 test("runClaude rejects with a friendly error when the binary is missing", async () => {
   await assert.rejects(
     () => runClaude([], { PATH: "", Path: "" }, "cc-switch-definitely-missing-bin"),
+    /Could not find "cc-switch-definitely-missing-bin"/
+  );
+});
+
+// The quota refresh path reuses the same resolution as an interactive
+// launch, so a missing binary must fail the same way instead of hanging.
+test("runClaudeQuiet rejects with a friendly error when the binary is missing", async () => {
+  await assert.rejects(
+    () => runClaudeQuiet([], { PATH: "", Path: "" }, "cc-switch-definitely-missing-bin"),
     /Could not find "cc-switch-definitely-missing-bin"/
   );
 });

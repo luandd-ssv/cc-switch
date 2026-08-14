@@ -8,10 +8,13 @@ const PAGE = new URL("./dashboard/page.html", import.meta.url);
 export const DASHBOARD_DEFAULTS = {
   port: 6769,
   host: "127.0.0.1",
-  // How often the page re-reads quota from disk. Whether to notify is decided
-  // against the wall clock on a much shorter tick, since a window crosses into
-  // "about to roll over" on the clock rather than on a re-read.
-  pollMinutes: 60,
+  // How often the page re-reads quota, and also the staleness threshold that
+  // makes /api/status actively run "claude -p /usage" for a cache older than
+  // this -- one knob controls both, so a poll never lands on data the
+  // dashboard was too stingy to have refreshed by then. Whether to notify is
+  // decided against the wall clock on a much shorter tick regardless, since a
+  // window crosses into "about to roll over" on the clock, not on a re-read.
+  pollMinutes: 3,
 };
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -36,6 +39,33 @@ function hostnameOf(hostHeader) {
 export function isLocalRequest(hostHeader) {
   if (!hostHeader) return false;
   return LOCAL_HOSTNAMES.has(hostnameOf(hostHeader).toLowerCase());
+}
+
+// /api/status is no longer a pure read: it can spawn `claude -p /usage` per
+// stale account. That makes it a side effect reachable by a plain cross-origin
+// GET, which needs no preflight and carries "Host: 127.0.0.1:<port>" like any
+// genuine request, so the Host check above cannot see the difference. Any page
+// the user happens to visit could therefore make their machine launch Claude
+// Code processes (it still cannot read the reply -- no CORS headers are sent).
+//
+// Sec-Fetch-Site is what distinguishes them: browsers set it on every request
+// and it cannot be spoofed from script. "none" is a typed URL or a bookmark,
+// "same-origin" is this page's own fetch. Anything else is another site
+// driving the request. A missing header means a non-browser client (curl, a
+// script) that no web page can direct, so it is allowed.
+export function isSameOriginRequest(req) {
+  const site = req.headers["sec-fetch-site"];
+  if (site !== undefined && site !== "same-origin" && site !== "none") return false;
+  // Belt and braces for anything that sends Origin without Sec-Fetch-Site.
+  const origin = req.headers.origin;
+  if (origin && origin !== "null") {
+    try {
+      if (!LOCAL_HOSTNAMES.has(new URL(origin).hostname.toLowerCase())) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Binding past loopback cannot work the way it looks like it would. The Host
@@ -72,7 +102,7 @@ function sendJson(res, code, data) {
 }
 
 export function createDashboardServer(options = {}) {
-  const { env = process.env, pollMinutes = DASHBOARD_DEFAULTS.pollMinutes, recommend } = options;
+  const { env = process.env, pollMinutes = DASHBOARD_DEFAULTS.pollMinutes, recommend, refresh } = options;
 
   return http.createServer(async (req, res) => {
     try {
@@ -97,7 +127,13 @@ export function createDashboardServer(options = {}) {
         });
       }
       if (url.pathname === "/api/status") {
-        const status = await collectStatus(env, { recommend });
+        // The client polls every pollMinutes, so that is also the natural
+        // staleness threshold: by the time the next poll lands, the previous
+        // one has already made sure the cache isn't older than this. A
+        // cross-site caller gets the cached read only -- never the spawn.
+        const allowRefresh = refresh !== false && isSameOriginRequest(req);
+        const refreshOpt = allowRefresh ? { staleMinutes: pollMinutes, ...refresh } : false;
+        const status = await collectStatus(env, { recommend, refresh: refreshOpt });
         return sendJson(res, 200, { ...status, dashboard: { pollMinutes } });
       }
       return send(res, 404, "Not found", { "content-type": "text/plain; charset=utf-8" });

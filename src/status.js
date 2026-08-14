@@ -4,6 +4,7 @@ import { accountsDir, claudeHomeDir, getCurrent, listAccounts, rootDir } from ".
 import { globalClaudeDir, sharedDirsFor } from "./workspace.js";
 import { resolveOnPath } from "./run.js";
 import { formatDuration, readProfile, recommendAccounts, windowFor } from "./quota.js";
+import { effectiveStaleMinutes, refreshStale } from "./refresh.js";
 
 const CREDENTIALS_FILE = ".credentials.json";
 
@@ -53,25 +54,45 @@ async function describeLogin(accountHome) {
   return { state: "logged-in", detail: stat.mtime.toISOString() };
 }
 
-// Newest write among the files Claude Code touches per session, which is the
-// closest thing to "last used" that cc-switch can see without tracking usage.
-async function lastActiveAt(accountHome) {
-  const candidates = [
-    path.join(accountHome, CREDENTIALS_FILE),
-    path.join(accountHome, ".claude.json"),
-    path.join(accountHome, "history.jsonl"),
-  ];
+// The closest thing to "last used" that cc-switch can see without tracking
+// usage. Only signals the quota auto-refresh (refresh.js) cannot forge count:
+//
+// - .claude.json's mtime is excluded outright, since a refresh rewrites that
+//   file every time it runs. Once an account had been refreshed even once its
+//   mtime would mean "last polled", not "last used".
+// - .credentials.json's mtime is excluded for the same reason, less obviously:
+//   Claude Code rewrites it whenever it rotates the OAuth access token, which
+//   a refresh will do for us as soon as the token is near expiry. It survives
+//   only as a last-resort fallback below, where there is no activity to report
+//   and "logged in at" beats "never".
+// - project.lastStartTime (surfaced through the profile's lastSession) and
+//   history.jsonl both move only when a session really starts, so they are
+//   what this prefers.
+async function lastActiveAt(accountHome, profile) {
   let newest = null;
-  for (const candidate of candidates) {
-    const stat = await statOrNull(candidate);
-    if (stat && (!newest || stat.mtime > newest)) newest = stat.mtime;
-  }
-  return newest ? newest.toISOString() : null;
+  const historyStat = await statOrNull(path.join(accountHome, "history.jsonl"));
+  if (historyStat) newest = historyStat.mtime.getTime();
+
+  const sessionStartedAt = profile?.lastSession?.startedAt;
+  if (sessionStartedAt != null && (newest == null || sessionStartedAt > newest)) newest = sessionStartedAt;
+  if (newest != null) return new Date(newest).toISOString();
+
+  // Nothing but a login to go on: an account that has been authenticated but
+  // never run still reads better as its login time than as "never".
+  const credentialsStat = await statOrNull(path.join(accountHome, CREDENTIALS_FILE));
+  return credentialsStat ? credentialsStat.mtime.toISOString() : null;
 }
 
-export async function collectStatus(env = process.env, { now = Date.now(), recommend } = {}) {
+export async function collectStatus(env = process.env, options = {}) {
+  const { recommend, refresh } = options;
+  // A caller that pins `now` wants a reproducible report, so its clock is left
+  // alone. Everyone else gets it re-stamped after a refresh below.
+  const pinnedNow = options.now;
+  let now = pinnedNow ?? Date.now();
+
   const current = await getCurrent();
   const globalDir = globalClaudeDir();
+  const claudeBin = resolveOnPath("claude", env);
   const accounts = [];
 
   for (const account of await listAccounts()) {
@@ -81,6 +102,7 @@ export async function collectStatus(env = process.env, { now = Date.now(), recom
     for (const dirName of sharedDirsFor(shareHistory)) {
       links.push(await describeLink(home, globalDir, dirName));
     }
+    const profile = await readProfile(home, now);
     accounts.push({
       name: account.name,
       active: account.name === current,
@@ -88,12 +110,38 @@ export async function collectStatus(env = process.env, { now = Date.now(), recom
       home,
       login: await describeLogin(home),
       links,
-      lastActive: await lastActiveAt(home),
-      profile: await readProfile(home, now),
+      lastActive: await lastActiveAt(home, profile),
+      profile,
     });
   }
 
-  const claudeBin = resolveOnPath("claude", env);
+  // Actively top up any cache older than the threshold before anything below
+  // reads it, so `status`/the dashboard show quota that is at most a few
+  // minutes stale instead of however long it has been since this account was
+  // last launched. A missing claude binary or refresh:false both no-op here
+  // rather than spawning anything.
+  const refreshOn = refresh !== false && !!claudeBin;
+  const refreshResults = refreshOn ? await refreshStale(accounts, env, { ...refresh, now, claudeBin }) : [];
+  // Effective threshold, clamped the same way refreshStale clamps it -- this
+  // is what actually happened, not just what was asked for, and it is what
+  // the QUOTA header below and the JSON output report.
+  const staleMinutes = refreshOn ? effectiveStaleMinutes(refresh?.staleMinutes) : null;
+
+  // A refresh spawns real processes, so it can easily have taken tens of
+  // seconds. Everything read before it is now that much out of date: the new
+  // fetchedAtMs is *later* than the `now` this report was stamped with, which
+  // would make "as of" ages come out negative, and a window that rolled over
+  // during the refresh would still be summarised as fresh against the old
+  // clock. Re-stamping and re-reading every account (not just the refreshed
+  // ones) keeps the whole report on one clock.
+  if (refreshResults.some((r) => r.attempted)) {
+    if (pinnedNow == null) now = Date.now();
+    for (const account of accounts) {
+      account.profile = await readProfile(account.home, now);
+      account.lastActive = await lastActiveAt(account.home, account.profile);
+    }
+  }
+
   const warnings = [];
 
   if (!claudeBin) {
@@ -122,6 +170,30 @@ export async function collectStatus(env = process.env, { now = Date.now(), recom
       "On macOS, Claude Code stores subscription credentials in the Keychain rather than under CLAUDE_CONFIG_DIR, so accounts share one login. Isolation covers settings and history only."
     );
   }
+  for (const result of refreshResults) {
+    if (result.ok) continue;
+    if (result.reason === "no-update") {
+      // A refresh that ran and left the cache byte-for-byte where it started
+      // almost always means the saved login no longer works -- the quiet way
+      // an expired or revoked token shows up, since the child still exits
+      // cleanly.
+      warnings.push(
+        `${result.name}: a quota refresh ran but the cache did not change. Its saved login may have expired -- re-authenticate with "cc-switch run" for that account.`
+      );
+    } else if (result.reason === "exit-nonzero") {
+      // Distinct from no-update on purpose: a non-zero exit points at claude
+      // itself (a broken install, an environment problem) rather than at
+      // this account's login, and blaming the login here would send the
+      // reader to fix the wrong thing.
+      warnings.push(`${result.name}: the quota refresh failed -- ${result.error}.`);
+    } else {
+      // Everything else (spawn-error, error, claude-not-found) says the same
+      // thing to the reader -- the refresh could not run -- and catching it
+      // with an else rather than a list means a reason added later cannot be
+      // dropped on the floor here.
+      warnings.push(`${result.name}: could not run a quota refresh (${result.error ?? result.reason}).`);
+    }
+  }
 
   return {
     generatedAt: new Date(now).toISOString(),
@@ -134,6 +206,15 @@ export async function collectStatus(env = process.env, { now = Date.now(), recom
     accounts,
     warnings,
     recommendations: recommendAccounts(accounts, recommend, now),
+    quotaRefresh: { enabled: refreshOn, staleMinutes },
+    // error is carried through so `--json` consumers see the same detail the
+    // rendered warnings do, instead of a bare reason they cannot act on.
+    refreshed: refreshResults.map((r) => ({
+      name: r.name,
+      ok: r.ok,
+      reason: r.reason ?? null,
+      error: r.error ?? null,
+    })),
   };
 }
 
@@ -219,7 +300,11 @@ export function renderStatus(status) {
   const withQuota = status.accounts.filter((a) => a.profile?.quota?.available);
   if (withQuota.length > 0) {
     out.push("");
-    out.push("QUOTA  (read from each account's cache, no API calls)");
+    out.push(
+      status.quotaRefresh?.enabled
+        ? `QUOTA  (auto-refreshed via "claude -p /usage" when a cache is older than ${status.quotaRefresh.staleMinutes} min)`
+        : "QUOTA  (refresh disabled -- showing whatever is already cached on disk)"
+    );
     out.push(
       ...renderTable(withQuota, [
         { header: "", value: (a) => (a.active ? "*" : " ") },
